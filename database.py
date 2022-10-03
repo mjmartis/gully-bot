@@ -11,6 +11,7 @@ import sys
 from gully_types import EmbeddedFrame
 
 import cv2
+from progress.bar import Bar
 import tensorflow as tf
 import tensorflow_hub as hub
 
@@ -46,13 +47,15 @@ def main():
         # Extract metadata.
         date, title = parse_video_path(video_path)
 
-        print(f'[{i+1}/{len(sys.argv)-2}] Processing "{title}"...')
-
         # Read video.
         cap = cv2.VideoCapture(video_path)
         fps = cap.get(cv2.CAP_PROP_FPS)
         frame_stride = int(fps / SAMPLE_HZ)
         frame_count = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+
+        # Display progress bar.
+        progress_text = f'[{i+1:03}/{len(sys.argv)-2}] {title}'
+        bar = Bar(f'{progress_text:30.30}', max=frame_count//frame_stride-1)
 
         # Process frames for this video.
         for frame_index in range(0, frame_count, frame_stride):
@@ -79,6 +82,10 @@ def main():
                                    timestamp=datetime.timedelta(seconds=frame_index/fps),
                                    features=embedded)
             pickle.dump(record, output)
+
+            bar.next()
+
+        bar.finish()
 
     output.close()
 
