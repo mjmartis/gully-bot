@@ -1,0 +1,6 @@
+- Add query logic
+- Support non-mp4 (e.g. flv) videos.
+- Include link information. 
+- Pickle dates and times as Python native types.
+- Synthesise many close points into correct timestamp.
+- Write Reddit client.
