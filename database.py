@@ -40,7 +40,7 @@ def main():
     embed_image = hub.KerasLayer(MODEL_DIR)
 
     # Open output index.
-    output = open(sys.argv[1], 'wb')
+    output = open(sys.argv[1], 'ab')
 
     # Process each video.
     for i, video_path in enumerate(sys.argv[2:]):
@@ -55,7 +55,7 @@ def main():
 
         # Display progress bar.
         progress_text = f'[{i+1:03}/{len(sys.argv)-2}] {title}'
-        bar = Bar(f'{progress_text:30.30}', max=frame_count//frame_stride-1)
+        bar = Bar(f'{progress_text:30.30}', max=frame_count//frame_stride+1)
 
         # Process frames for this video.
         for frame_index in range(0, frame_count, frame_stride):
