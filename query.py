@@ -17,6 +17,7 @@ MODEL_DIR = 'imagenet_mobilenet_v2_140_224_feature_vector'
 MODEL_INPUT_DIMS = (224, 224)
 
 BATCH_SIZE = 32
+CANDIDATES_SIZE = 5
 
 # Print out the "min:sec" formatted version of the given
 # second duration.
@@ -41,8 +42,10 @@ def main():
     # Run embedding.
     query_features = embed_image(image_tensor).numpy()[0]
 
-    # Find closest datapoint.
-    closest_dist, closest_datapoint = sys.float_info.max, None
+    # A running tally of the closest n datapoints we've seen. Stored
+    # as (dist, datapoint) for sorting purposes.
+    closest = []
+
     with open(sys.argv[1], 'rb') as database:
         # Keep going until we hit the end of the file.
         while True:
@@ -56,25 +59,28 @@ def main():
 
                 batch.append(pickle.load(database))
 
-            if not head:
+            if not batch:
                 break
 
-            # Find minimum distance.
+            # Find distances across the whole batch.
             ds = spatial.distance.cdist([query_features],
-                                       [r.features for r in batch],
-                                       'cosine')[0]
-            min_index = np.argmin(ds)
+                                        [r.features for r in batch],
+                                        'cosine')[0]
 
-            if ds[min_index] < closest_dist:
-                closest_dist = ds[min_index]
-                closest_datapoint = batch[min_index]
+            # Calculate the closest n from this batch.
+            part = np.argpartition(ds, CANDIDATES_SIZE)[:-CANDIDATES_SIZE]
+            batch_closest = [(ds[i], batch[i]) for i in part]
+
+            # Merge this batch with the closest seen so far.
+            closest = sorted(closest + batch_closest)[:CANDIDATES_SIZE]
 
             head = database.peek(1)
 
-    date_str = closest_datapoint.date.strftime('%-m %b %Y')
-    length_str = format_duration(closest_datapoint.length.seconds)
-    timestamp_str = format_duration(closest_datapoint.timestamp.seconds)
-    print(f'"{closest_datapoint.title}" ({date_str}) [{timestamp_str}/{length_str}]')
+    for _, c in closest[:CANDIDATES_SIZE]:
+        date_str = c.date.strftime('%-m %b %Y')
+        length_str = format_duration(c.length.seconds)
+        timestamp_str = format_duration(c.timestamp.seconds)
+        print(f'"{c.title}" ({date_str}) [{timestamp_str}/{length_str}]')
 
 if __name__ == "__main__":
     main()
