@@ -1,11 +1,13 @@
 # Finds the closest image in the given index.
 #   Usage: query.py <index file> <image file>
 
+from datetime import datetime
 import pickle
 import sys
 
 from gully_types import EmbeddedFrame
 
+import numpy as np
 from scipy import spatial
 import tensorflow as tf
 import tensorflow_hub as hub
@@ -13,6 +15,8 @@ import tensorflow_hub as hub
 # Embedding model metadata.
 MODEL_DIR = 'imagenet_mobilenet_v2_140_224_feature_vector'
 MODEL_INPUT_DIMS = (224, 224)
+
+BATCH_SIZE = 32
 
 # Print out the "min:sec" formatted version of the given
 # second duration.
@@ -41,15 +45,29 @@ def main():
     closest_dist, closest_datapoint = sys.float_info.max, None
     with open(sys.argv[1], 'rb') as database:
         # Keep going until we hit the end of the file.
-        head = database.peek(1)
-        while head:
-            datapoint = pickle.load(database)
+        while True:
+            # Collect a batch of datapoints so we can take advantage
+            # of vectorised distance calculations.
+            batch = []
+            for _ in range(BATCH_SIZE):
+                head = database.peek(1)
+                if not head:
+                    break
 
-            d = spatial.distance.cosine(query_features, datapoint.features)
+                batch.append(pickle.load(database))
 
-            if d < closest_dist:
-                closest_dist = d
-                closest_datapoint = datapoint
+            if not head:
+                break
+
+            # Find minimum distance.
+            ds = spatial.distance.cdist([query_features],
+                                       [r.features for r in batch],
+                                       'cosine')[0]
+            min_index = np.argmin(ds)
+
+            if ds[min_index] < closest_dist:
+                closest_dist = ds[min_index]
+                closest_datapoint = batch[min_index]
 
             head = database.peek(1)
 
