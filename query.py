@@ -28,6 +28,7 @@ BATCH_SIZE = 32
 CANDIDATES_SIZE = 5
 CLOSE_TIME = datetime.timedelta(seconds=5.5)
 MAX_DISTANCE = 0.15
+MAX_OUTLIERS = 1
 
 # Returns the "min:sec" formatted version of the given
 # second duration.
@@ -109,13 +110,13 @@ def main():
 
     ## Debug output.
     #for d, c in closest:
-    #    print(f'{format_datapoint(c, True)} <d {d}>.')
+    #    print(f'{format_datapoint(c, True)} <d {d}>')
 
     # Our closest datapoints in chronological order.
     candidates = sorted([c for _,c in closest], key=lambda c: c.timestamp)
 
-    # All results must be from the same video.
-    if any(c.title != candidates[0].title for c in candidates):
+    # Can have at most one outlier title.
+    if sum(c.title != closest[0][1].title for c in candidates) > MAX_OUTLIERS:
         print('Not found.')
         exit()
 
