@@ -3,6 +3,7 @@
 #  Usage: python3 database.py <output file> <input files...>
 
 import datetime
+import logging
 import os
 import pathlib
 import pickle
@@ -12,6 +13,10 @@ from gully_types import EmbeddedFrame
 
 import cv2
 from progress.bar import Bar
+
+# Silence chatty TF.
+os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'  # FATAL
+logging.getLogger('tensorflow').setLevel(logging.FATAL)
 import tensorflow as tf
 import tensorflow_hub as hub
 
