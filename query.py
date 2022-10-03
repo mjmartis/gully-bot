@@ -2,8 +2,11 @@
 #   Usage: query.py <index file> <image file>
 
 import pickle
-from scipy import spatial
 import sys
+
+from gully_types import EmbeddedFrame
+
+from scipy import spatial
 import tensorflow as tf
 import tensorflow_hub as hub
 
@@ -12,10 +15,10 @@ MODEL_DIR = 'imagenet_mobilenet_v2_140_224_feature_vector'
 MODEL_INPUT_DIMS = (224, 224)
 
 # Print out the "min:sec" formatted version of the given
-# millisecond duration.
-def format_duration_ms(ms):
-    mins, mod_ms = divmod(ms, 60 * 1000)
-    return f'{mins}:{mod_ms//1000:02}'
+# second duration.
+def format_duration(s):
+    mins, secs = divmod(s, 60)
+    return f'{mins}:{secs:02}'
 
 def main():
     if len(sys.argv) != 3:
@@ -32,28 +35,28 @@ def main():
     image_tensor = tf.expand_dims(image_array, 0)
 
     # Run embedding.
-    query = embed_image(image_tensor)
+    query_features = embed_image(image_tensor).numpy()[0]
 
     # Find closest datapoint.
-    closest_dist, closest_line = sys.float_info.max, None
+    closest_dist, closest_datapoint = sys.float_info.max, None
     with open(sys.argv[1], 'rb') as index_file:
         # Keep going until we hit the end of the file.
         try:
             while True:
-                # Line format: (title, date, timestamp in ms, features)
-                index_line = pickle.load(index_file)
-                datapoint = index_line[-1]
+                datapoint = pickle.load(index_file)
 
-                d = spatial.distance.cosine(query.numpy()[0], datapoint)
+                d = spatial.distance.cosine(query_features, datapoint.features)
 
                 if d < closest_dist:
                     closest_dist = d
-                    closest_line = index_line[:-1]
+                    closest_datapoint = datapoint
         except EOFError:
             pass
 
-    title, date, ts_ms = closest_line
-    print(f'"{title}" ({date}) [{format_duration_ms(ts_ms)}]')
+    date_str = closest_datapoint.date.strftime('%-m %b %Y')
+    length_str = format_duration(closest_datapoint.length.seconds)
+    timestamp_str = format_duration(closest_datapoint.timestamp.seconds)
+    print(f'"{closest_datapoint.title}" ({date_str}) [{timestamp_str}/{length_str}]')
 
 if __name__ == "__main__":
     main()

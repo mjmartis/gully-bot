@@ -2,12 +2,15 @@
 # of the given images.
 #  Usage: python3 database.py <output file> <input files...>
 
-import cv2
-from datetime import datetime
+import datetime
 import os
 import pathlib
 import pickle
 import sys
+
+from gully_types import EmbeddedFrame
+
+import cv2
 import tensorflow as tf
 import tensorflow_hub as hub
 
@@ -17,18 +20,14 @@ MODEL_INPUT_DIMS = (224, 224)
 
 SAMPLE_HZ = 2
 
-# Output the basename of the given path without an extension.
-def stem(path):
-    return pathlib.Path(path).stem.split('.')[0]
-
 # Parse date and video title from full path, with stem in the
 # in the format:
 #  YYYY-MM-DD NAME
 # Returns (name, date) tuple.
 def parse_video_path(path):
-    path_stem = stem(path)
+    path_stem = pathlib.Path(path).stem
     sep_index = path_stem.find(' ')
-    date = datetime.strptime(path_stem[:sep_index], '%Y-%m-%d')
+    date = datetime.datetime.strptime(path_stem[:sep_index], '%Y-%m-%d')
     return (date, path_stem[sep_index+1:])
 
 def main():
@@ -71,12 +70,15 @@ def main():
             frame_input = tf.expand_dims(frame_input , 0)
 
             # Embed image.
-            embedded = embed_image(frame_input)
+            embedded = embed_image(frame_input).numpy()[0]
 
             # Write binary blob.
-            ts_ms = int(1000 * frame_index / fps)
-            date_str = date.strftime('%-m %b %Y')
-            pickle.dump((title, date_str, ts_ms, embedded.numpy()[0]), output)
+            record = EmbeddedFrame(title=title,
+                                   date=date,
+                                   length=datetime.timedelta(seconds=frame_count/fps),
+                                   timestamp=datetime.timedelta(seconds=frame_index/fps),
+                                   features=embedded)
+            pickle.dump(record, output)
 
     output.close()
 
