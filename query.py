@@ -10,6 +10,7 @@ import sys
 from gully_types import EmbeddedFrame
 
 import numpy as np
+from progress.bar import Bar
 from scipy import spatial
 
 # Silence chatty TF.
@@ -66,6 +67,9 @@ def main():
     # as (dist, datapoint) for sorting purposes.
     closest = []
 
+    database_size = os.path.getsize(sys.argv[1])
+    database_progress = 0
+    bar = Bar('Searching', max=database_size, suffix='%(percent)d%%')
     with open(sys.argv[1], 'rb') as database:
         # Keep going until we hit the end of the file.
         while True:
@@ -78,6 +82,10 @@ def main():
                     break
 
                 batch.append(pickle.load(database))
+
+            # Advance progress bar.
+            bar.next(database.tell() - database_progress)
+            database_progress = database.tell()
 
             if not batch:
                 break
@@ -96,6 +104,8 @@ def main():
             closest = sorted(closest + batch_closest)[:CANDIDATES_SIZE]
 
             head = database.peek(1)
+
+    bar.finish()
 
     ## Debug output.
     #for d, c in closest:
