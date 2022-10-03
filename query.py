@@ -39,19 +39,19 @@ def main():
 
     # Find closest datapoint.
     closest_dist, closest_datapoint = sys.float_info.max, None
-    with open(sys.argv[1], 'rb') as index_file:
+    with open(sys.argv[1], 'rb') as database:
         # Keep going until we hit the end of the file.
-        try:
-            while True:
-                datapoint = pickle.load(index_file)
+        head = database.peek(1)
+        while head:
+            datapoint = pickle.load(database)
 
-                d = spatial.distance.cosine(query_features, datapoint.features)
+            d = spatial.distance.cosine(query_features, datapoint.features)
 
-                if d < closest_dist:
-                    closest_dist = d
-                    closest_datapoint = datapoint
-        except EOFError:
-            pass
+            if d < closest_dist:
+                closest_dist = d
+                closest_datapoint = datapoint
+
+            head = database.peek(1)
 
     date_str = closest_datapoint.date.strftime('%-m %b %Y')
     length_str = format_duration(closest_datapoint.length.seconds)
