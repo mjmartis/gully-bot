@@ -32,11 +32,13 @@ CLOSE_TIME = datetime.timedelta(seconds=5.5)
 MAX_DISTANCE = 0.125
 MAX_OUTLIERS = 2
 
+
 # Returns the "min:sec" formatted version of the given
 # second duration.
 def format_duration(s):
     mins, secs = divmod(s, 60)
     return f'{mins}:{secs:02}'
+
 
 # Returns a string representing the given datapoint.
 def format_datapoint(d):
@@ -48,6 +50,7 @@ def format_datapoint(d):
         return f'"{d.title}" ({date_str}) [{timestamp_str}/{length_str}]'
 
     return f'"{d.title}" ({date_str})'
+
 
 def find_nearest_frame(db_filename, image_bytes, bar):
     image = Image.open(image_bytes) \
@@ -130,21 +133,23 @@ def find_nearest_frame(db_filename, image_bytes, bar):
                          timestamp=None if timestamp_bad else chosen.timestamp,
                          features=None)
 
+
 def main():
     if len(sys.argv) != 3:
         print(f'Usage: {sys.argv[0]} <index file> <image file>')
         exit(1)
 
-    bar = Bar('Searching', max=os.path.getsize(sys.argv[1]),
+    bar = Bar('Searching',
+              max=os.path.getsize(sys.argv[1]),
               suffix='%(percent)d%%')
-    chosen = find_nearest_frame(sys.argv[1], open(sys.argv[2], 'rb'),
-                                bar)
+    chosen = find_nearest_frame(sys.argv[1], open(sys.argv[2], 'rb'), bar)
     bar.finish()
 
     if chosen:
         print(format_datapoint(chosen))
     else:
         print('Not found.')
+
 
 if __name__ == "__main__":
     main()

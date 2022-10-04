@@ -26,6 +26,7 @@ MODEL_INPUT_DIMS = (224, 224)
 
 SAMPLE_HZ = 2
 
+
 # Parse date and video title from full path, with stem in the
 # in the format:
 #  YYYY-MM-DD NAME
@@ -34,7 +35,8 @@ def parse_video_path(path):
     path_stem = pathlib.Path(path).stem
     sep_index = path_stem.find(' ')
     date = datetime.datetime.strptime(path_stem[:sep_index], '%Y-%m-%d')
-    return (date, path_stem[sep_index+1:])
+    return (date, path_stem[sep_index + 1:])
+
 
 def main():
     if len(sys.argv) < 3:
@@ -61,7 +63,7 @@ def main():
         # Display progress bar.
         progress_text = f'[{i+1:03}/{len(sys.argv)-2}] {title}'
         bar = Bar(f'{progress_text:30.30}',
-                  max=frame_count//frame_stride+1,
+                  max=frame_count // frame_stride + 1,
                   suffix='%(percent)d%%')
 
         # Process frames for this video.
@@ -73,21 +75,22 @@ def main():
                 print(f'Failed to read "{title}" frame {frame_index}.')
                 continue
 
-            # Massage frame into format required by TF. 
+            # Massage frame into format required by TF.
             frame = cv2.resize(frame, MODEL_INPUT_DIMS)
             frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
             frame_input = tf.convert_to_tensor(frame, dtype=tf.float32)
-            frame_input = tf.expand_dims(frame_input , 0)
+            frame_input = tf.expand_dims(frame_input, 0)
 
             # Embed image.
             embedded = embed_image(frame_input).numpy()[0]
 
             # Write binary blob.
-            record = EmbeddedFrame(title=title,
-                                   date=date,
-                                   length=datetime.timedelta(seconds=frame_count/fps),
-                                   timestamp=datetime.timedelta(seconds=frame_index/fps),
-                                   features=embedded)
+            record = EmbeddedFrame(
+                title=title,
+                date=date,
+                length=datetime.timedelta(seconds=frame_count / fps),
+                timestamp=datetime.timedelta(seconds=frame_index / fps),
+                features=embedded)
             pickle.dump(record, output)
 
             bar.next()
@@ -95,6 +98,7 @@ def main():
         bar.finish()
 
     output.close()
+
 
 if __name__ == "__main__":
     main()
