@@ -10,6 +10,7 @@ import sys
 from gully_types import EmbeddedFrame
 
 import numpy as np
+from PIL import Image
 from progress.bar import Bar
 from scipy import spatial
 
@@ -22,6 +23,7 @@ import tensorflow_hub as hub
 # Embedding model metadata.
 MODEL_DIR = 'imagenet_mobilenet_v2_140_224_feature_vector'
 MODEL_INPUT_DIMS = (224, 224)
+EMBED_IMAGE = hub.KerasLayer(MODEL_DIR)
 
 BATCH_SIZE = 32
 
@@ -37,56 +39,48 @@ def format_duration(s):
     return f'{mins}:{secs:02}'
 
 # Returns a string representing the given datapoint.
-def format_datapoint(d, include_ts):
+def format_datapoint(d):
     date_str = d.date.strftime('%-m %b %Y')
 
-    if include_ts:
+    if d.timestamp:
         length_str = format_duration(d.length.seconds)
         timestamp_str = format_duration(d.timestamp.seconds)
         return f'"{d.title}" ({date_str}) [{timestamp_str}/{length_str}]'
 
     return f'"{d.title}" ({date_str})'
 
-def main():
-    if len(sys.argv) != 3:
-        print(f'Usage: {sys.argv[0]} <index file> <image file>')
-        exit(1)
-
-    # Load embedding model.
-    embed_image = hub.KerasLayer(MODEL_DIR)
-
-    # Load image into tensor.
-    image_path = sys.argv[2]
-    image = tf.keras.preprocessing.image.load_img(image_path, target_size=MODEL_INPUT_DIMS)
-    image_array = tf.keras.preprocessing.image.img_to_array(image)
+def find_nearest_frame(db_filename, image_bytes, bar):
+    image = Image.open(image_bytes) \
+                 .convert('RGB') \
+                 .resize(MODEL_INPUT_DIMS, Image.NEAREST)
+    image_array = tf.keras.utils.img_to_array(image)
     image_tensor = tf.expand_dims(image_array, 0)
 
     # Run embedding.
-    query_features = embed_image(image_tensor).numpy()[0]
+    query_features = EMBED_IMAGE(image_tensor).numpy()[0]
 
     # A running tally of the closest n datapoints we've seen. Stored
     # as (dist, datapoint) for sorting purposes.
     closest = []
 
-    database_size = os.path.getsize(sys.argv[1])
-    database_progress = 0
-    bar = Bar('Searching', max=database_size, suffix='%(percent)d%%')
-    with open(sys.argv[1], 'rb') as database:
+    db_progress = 0
+    with open(db_filename, 'rb') as db:
         # Keep going until we hit the end of the file.
         while True:
             # Collect a batch of datapoints so we can take advantage
             # of vectorised distance calculations.
             batch = []
             for _ in range(BATCH_SIZE):
-                head = database.peek(1)
+                head = db.peek(1)
                 if not head:
                     break
 
-                batch.append(pickle.load(database))
+                batch.append(pickle.load(db))
 
             # Advance progress bar.
-            bar.next(database.tell() - database_progress)
-            database_progress = database.tell()
+            if bar:
+                bar.next(db.tell() - db_progress)
+            db_progress = db.tell()
 
             if not batch:
                 break
@@ -104,9 +98,7 @@ def main():
             # Merge this batch with the closest seen so far.
             closest = sorted(closest + batch_closest)[:CANDIDATES_SIZE]
 
-            head = database.peek(1)
-
-    bar.finish()
+            head = db.peek(1)
 
     ## Debug output.
     #for d, c in closest:
@@ -119,14 +111,12 @@ def main():
 
     # Selection must be moderately close.
     if chosen_dist > MAX_DISTANCE:
-        print('Not found.')
-        exit()
+        return None
 
     # Can have at most one outlier title.
     candidates = [c for c in candidates if c.title == chosen.title]
     if len(candidates) < candidates_len - MAX_OUTLIERS:
-        print('Not found.')
-        exit()
+        return None
 
     # If most of the candidates are far away from our selection
     # chronologically, then don't offer timestamp.
@@ -134,7 +124,27 @@ def main():
     far = lambda c1, c2: abs(c1.timestamp - c2.timestamp) > CLOSE_TIME
     timestamp_bad = sum(far(c, chosen) for c in candidates) > half_count
 
-    print(format_datapoint(chosen, not timestamp_bad))
+    return EmbeddedFrame(title=chosen.title,
+                         date=chosen.date,
+                         length=chosen.length,
+                         timestamp=None if timestamp_bad else chosen.timestamp,
+                         features=None)
+
+def main():
+    if len(sys.argv) != 3:
+        print(f'Usage: {sys.argv[0]} <index file> <image file>')
+        exit(1)
+
+    bar = Bar('Searching', max=os.path.getsize(sys.argv[1]),
+              suffix='%(percent)d%%')
+    chosen = find_nearest_frame(sys.argv[1], open(sys.argv[2], 'rb'),
+                                bar)
+    bar.finish()
+
+    if chosen:
+        print(format_datapoint(chosen))
+    else:
+        print('Not found.')
 
 if __name__ == "__main__":
     main()
