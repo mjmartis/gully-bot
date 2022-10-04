@@ -27,8 +27,8 @@ BATCH_SIZE = 32
 
 CANDIDATES_SIZE = 5
 CLOSE_TIME = datetime.timedelta(seconds=5.5)
-MAX_DISTANCE = 0.15
-MAX_OUTLIERS = 1
+MAX_DISTANCE = 0.125
+MAX_OUTLIERS = 2
 
 # Returns the "min:sec" formatted version of the given
 # second duration.
@@ -112,26 +112,27 @@ def main():
     #for d, c in closest:
     #    print(f'{format_datapoint(c, True)} <d {d}>')
 
-    # Our closest datapoints in chronological order.
-    candidates = sorted([c for _,c in closest], key=lambda c: c.timestamp)
+    # Choose closest frame.
+    chosen_dist, chosen = closest[0]
+    candidates = [c for _, c in closest]
+    candidates_len = len(candidates)
 
-    # Can have at most one outlier title.
-    if sum(c.title != closest[0][1].title for c in candidates) > MAX_OUTLIERS:
+    # Selection must be moderately close.
+    if chosen_dist > MAX_DISTANCE:
         print('Not found.')
         exit()
 
-    chosen_dist, chosen = closest[0]
+    # Can have at most one outlier title.
+    candidates = [c for c in candidates if c.title == chosen.title]
+    if len(candidates) < candidates_len - MAX_OUTLIERS:
+        print('Not found.')
+        exit()
 
     # If most of the candidates are far away from our selection
     # chronologically, then don't offer timestamp.
     half_count = len(candidates) // 2
     far = lambda c1, c2: abs(c1.timestamp - c2.timestamp) > CLOSE_TIME
     timestamp_bad = sum(far(c, chosen) for c in candidates) > half_count
-
-    # Selection must be moderately close.
-    if chosen_dist > MAX_DISTANCE:
-        print('Not found.')
-        exit()
 
     print(format_datapoint(chosen, not timestamp_bad))
 
