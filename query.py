@@ -52,7 +52,10 @@ def format_datapoint(d):
     return f'"{d.title}" ({date_str})'
 
 
-def find_nearest_frame(db_filename, image_bytes, bar):
+# Accepts a database and image contents and returns the best guess of the frame
+# that the image represents (or None if there is no close match).
+def find_nearest_frame(db, image_bytes, bar):
+    # Convert image into TF model input.
     image = Image.open(image_bytes) \
                  .convert('RGB') \
                  .resize(MODEL_INPUT_DIMS, Image.NEAREST)
@@ -66,42 +69,43 @@ def find_nearest_frame(db_filename, image_bytes, bar):
     # as (dist, datapoint) for sorting purposes.
     closest = []
 
+    # Keep going until we hit the end of the file.
+    db.seek(0)
     db_progress = 0
-    with open(db_filename, 'rb') as db:
-        # Keep going until we hit the end of the file.
-        while True:
-            # Collect a batch of datapoints so we can take advantage
-            # of vectorised distance calculations.
-            batch = []
-            for _ in range(BATCH_SIZE):
-                head = db.peek(1)
-                if not head:
-                    break
-
-                batch.append(pickle.load(db))
-
-            # Advance progress bar.
-            if bar:
-                bar.next(db.tell() - db_progress)
-            db_progress = db.tell()
-
-            if not batch:
+    while True:
+        # Collect a batch of datapoints so we can take advantage
+        # of vectorised distance calculations.
+        batch = []
+        for _ in range(BATCH_SIZE):
+            head = db.peek(1)
+            if not head:
                 break
 
-            # Find distances across the whole batch.
-            ds = spatial.distance.cdist([query_features],
-                                        [r.features for r in batch],
-                                        'cosine')[0]
+            batch.append(pickle.load(db))
 
-            # Calculate the closest n from this batch.
-            if len(batch) > CANDIDATES_SIZE:
-                part = np.argpartition(ds, CANDIDATES_SIZE)[:-CANDIDATES_SIZE]
-                batch_closest = [(ds[i], batch[i]) for i in part]
+        # Advance progress bar.
+        if bar:
+            bar.next(db.tell() - db_progress)
+        db_progress = db.tell()
 
-            # Merge this batch with the closest seen so far.
-            closest = sorted(closest + batch_closest)[:CANDIDATES_SIZE]
+        if not batch:
+            break
 
-            head = db.peek(1)
+        # Find distances across the whole batch.
+        ds = spatial.distance.cdist([query_features],
+                                    [r.features for r in batch], 'cosine')[0]
+
+        # Calculate the closest n from this batch.
+        if len(batch) > CANDIDATES_SIZE:
+            part = np.argpartition(ds, CANDIDATES_SIZE)[:-CANDIDATES_SIZE]
+            batch_closest = [(ds[i], batch[i]) for i in part]
+
+        # Merge this batch with the closest seen so far.
+        closest = sorted(closest + batch_closest)[:CANDIDATES_SIZE]
+
+        head = db.peek(1)
+
+    db.seek(0)
 
     ## Debug output.
     #for d, c in closest:
@@ -139,11 +143,15 @@ def main():
         print(f'Usage: {sys.argv[0]} <index file> <image file>')
         exit(1)
 
+    db = open(sys.argv[1], 'rb')
+    image = open(sys.argv[2], 'rb')
     bar = Bar('Searching',
               max=os.path.getsize(sys.argv[1]),
               suffix='%(percent)d%%')
-    chosen = find_nearest_frame(sys.argv[1], open(sys.argv[2], 'rb'), bar)
+    chosen = find_nearest_frame(db, image, bar)
     bar.finish()
+    image.close()
+    db.close()
 
     if chosen:
         print(format_datapoint(chosen))
