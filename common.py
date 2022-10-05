@@ -18,17 +18,24 @@ logging.getLogger('tensorflow').setLevel(logging.FATAL)
 import tensorflow as tf
 import tensorflow_hub as hub
 
+# A patch after migrating type location. TODO: update db and remove this.
+import common
+sys.modules['gully_types'] = common
+
 # Embedding model metadata.
 MODEL_DIR = 'imagenet_mobilenet_v2_140_224_feature_vector'
 MODEL_INPUT_DIMS = (224, 224)
 EMBED_IMAGE = hub.KerasLayer(MODEL_DIR)
+
+IMG_MIN_RATIO = 1.30
+IMG_MAX_RATIO = 2.30
 
 BATCH_SIZE = 32
 
 CANDIDATES_SIZE = 5
 CLOSE_TIME = datetime.timedelta(seconds=5.5)
 MAX_DISTANCE = 0.125
-MAX_OUTLIERS = 2
+MAX_OUTLIERS = 1
 
 EmbeddedFrame = namedtuple('EmbeddedFrame',
                            ['title', 'date', 'length', 'timestamp', 'features'])
@@ -58,10 +65,16 @@ def format_datapoint(d):
 # accepts a progress bar to increment as the serach progresses.
 def find_nearest_frame(db, image_bytes, bar):
     # Convert image into TF model input.
-    image = Image.open(image_bytes) \
-                 .convert('RGB') \
-                 .resize(MODEL_INPUT_DIMS, Image.NEAREST)
-    image_array = tf.keras.utils.img_to_array(image)
+    image = Image.open(image_bytes)
+    image_w, image_h = image.size
+
+    # Can't scale the image if it would mutate it too much.
+    if not (IMG_MIN_RATIO < image_w / image_h < IMG_MAX_RATIO):
+        return None
+
+    formatted_image = image.convert('RGB') \
+                           .resize(MODEL_INPUT_DIMS, Image.NEAREST)
+    image_array = tf.keras.utils.img_to_array(formatted_image)
     image_tensor = tf.expand_dims(image_array, 0)
 
     # Run embedding.
@@ -112,8 +125,9 @@ def find_nearest_frame(db, image_bytes, bar):
     db.seek(0)
 
     ## Debug output.
+    #print()
     #for d, c in closest:
-    #    print(f'{format_datapoint(c, True)} <d {d}>')
+    #    print(f'{format_datapoint(c)} <d {d}>')
 
     # Choose closest frame.
     chosen_dist, chosen = closest[0]
@@ -124,7 +138,7 @@ def find_nearest_frame(db, image_bytes, bar):
     if chosen_dist > MAX_DISTANCE:
         return None
 
-    # Can have at most one outlier title.
+    # Can only have limited outlier titles.
     candidates = [c for c in candidates if c.title == chosen.title]
     if len(candidates) < candidates_len - MAX_OUTLIERS:
         return None

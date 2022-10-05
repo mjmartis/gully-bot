@@ -6,11 +6,6 @@ import sys
 
 from common import EmbeddedFrame, find_nearest_frame, format_datapoint
 
-# Patch after migrating type location. TODO: update db and remove this.
-import common
-
-sys.modules['gully_types'] = common
-
 from progress.bar import Bar
 
 
