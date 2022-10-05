@@ -9,7 +9,7 @@ import pathlib
 import pickle
 import sys
 
-from gully_types import EmbeddedFrame
+from common import EmbeddedFrame
 
 import cv2
 from progress.bar import Bar
