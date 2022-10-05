@@ -34,7 +34,7 @@ BATCH_SIZE = 32
 
 CANDIDATES_SIZE = 5
 CLOSE_TIME = datetime.timedelta(seconds=5.5)
-MAX_DISTANCE = 0.125
+MAX_DISTANCE = 0.135
 MAX_OUTLIERS = 1
 
 EmbeddedFrame = namedtuple('EmbeddedFrame',
@@ -60,12 +60,9 @@ def format_datapoint(d):
     return f'"{d.title}" ({date_str})'
 
 
-# Accepts a database and image contents and returns the best guess of the frame
-# that the image represents (or None if there is no close match). Optionally
-# accepts a progress bar to increment as the serach progresses.
-def find_nearest_frame(db, image_bytes, bar):
-    # Convert image into TF model input.
-    image = Image.open(image_bytes)
+# Accepts a PIL image and returns the image in a tensor of the format needed by
+# the emebdding model (or None if the image isn't suitable for input).
+def image_to_tensor(image):
     image_w, image_h = image.size
 
     # Can't scale the image if it would mutate it too much.
@@ -75,7 +72,18 @@ def find_nearest_frame(db, image_bytes, bar):
     formatted_image = image.convert('RGB') \
                            .resize(MODEL_INPUT_DIMS, Image.NEAREST)
     image_array = tf.keras.utils.img_to_array(formatted_image)
-    image_tensor = tf.expand_dims(image_array, 0)
+    return tf.expand_dims(image_array, 0)
+
+
+# Accepts a database and image contents and returns the best guess of the frame
+# that the image represents (or None if there is no close match). Optionally
+# accepts a progress bar to increment as the serach progresses.
+def find_nearest_frame(db, image_bytes, bar):
+    # Convert image into TF model input.
+    image = Image.open(image_bytes)
+    image_tensor = image_to_tensor(image)
+    if image_tensor is None:
+        return None
 
     # Run embedding.
     query_features = EMBED_IMAGE(image_tensor).numpy()[0]
@@ -112,13 +120,14 @@ def find_nearest_frame(db, image_bytes, bar):
 
         # Calculate the closest n from this batch.
         if len(batch) > CANDIDATES_SIZE:
-            ids = np.argpartition(ds, CANDIDATES_SIZE)[:-CANDIDATES_SIZE]
+            ids = np.argpartition(ds, CANDIDATES_SIZE)[:CANDIDATES_SIZE]
         else:
             ids = range(len(batch))
         batch_closest = [(ds[i], batch[i]) for i in ids]
 
         # Merge this batch with the closest seen so far.
-        closest = sorted(closest + batch_closest)[:CANDIDATES_SIZE]
+        closest = sorted(closest + batch_closest,
+                         key=lambda t: t[0])[:CANDIDATES_SIZE]
 
         head = db.peek(1)
 

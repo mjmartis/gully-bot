@@ -9,20 +9,11 @@ import pathlib
 import pickle
 import sys
 
-from common import EmbeddedFrame
+from common import EMBED_IMAGE, EmbeddedFrame, image_to_tensor
 
 import cv2
+from PIL import Image
 from progress.bar import Bar
-
-# Silence chatty TF.
-os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'  # FATAL
-logging.getLogger('tensorflow').setLevel(logging.FATAL)
-import tensorflow as tf
-import tensorflow_hub as hub
-
-# Embedding model metadata.
-MODEL_DIR = 'imagenet_mobilenet_v2_140_224_feature_vector'
-MODEL_INPUT_DIMS = (224, 224)
 
 SAMPLE_HZ = 2
 
@@ -42,9 +33,6 @@ def main():
     if len(sys.argv) < 3:
         print(f'Usage: {sys.argv[0]} <output file> <input files...>')
         exit(1)
-
-    # Load embedding model.
-    embed_image = hub.KerasLayer(MODEL_DIR)
 
     # Open output index.
     output = open(sys.argv[1], 'ab')
@@ -68,6 +56,8 @@ def main():
 
         # Process frames for this video.
         for frame_index in range(0, frame_count, frame_stride):
+            bar.next()
+
             # Jump to and read frame.
             cap.set(cv2.CAP_PROP_POS_FRAMES, frame_index)
             ret, frame = cap.read()
@@ -76,13 +66,13 @@ def main():
                 continue
 
             # Massage frame into format required by TF.
-            frame = cv2.resize(frame, MODEL_INPUT_DIMS)
             frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-            frame_input = tf.convert_to_tensor(frame, dtype=tf.float32)
-            frame_input = tf.expand_dims(frame_input, 0)
+            frame_tensor = image_to_tensor(Image.fromarray(frame))
+            if frame_tensor is None:
+                continue
 
             # Embed image.
-            embedded = embed_image(frame_input).numpy()[0]
+            embedded = EMBED_IMAGE(frame_tensor).numpy()[0]
 
             # Write binary blob.
             record = EmbeddedFrame(
@@ -92,8 +82,6 @@ def main():
                 timestamp=datetime.timedelta(seconds=frame_index / fps),
                 features=embedded)
             pickle.dump(record, output)
-
-            bar.next()
 
         bar.finish()
 
