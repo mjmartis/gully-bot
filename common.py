@@ -20,51 +20,41 @@ import tensorflow_hub as hub
 
 # A patch after migrating type location. TODO: update db and remove this.
 import common
+
 sys.modules['gully_types'] = common
 
 # Embedding model metadata.
-MODEL_DIR = 'imagenet_mobilenet_v2_140_224_feature_vector'
-MODEL_INPUT_DIMS = (224, 224)
-EMBED_IMAGE = hub.KerasLayer(MODEL_DIR)
+_MODEL_DIR = 'imagenet_mobilenet_v2_140_224_feature_vector'
+_MODEL_INPUT_DIMS = (224, 224)
+_EMBED_IMAGE = hub.KerasLayer(_MODEL_DIR)
 
-IMG_MIN_RATIO = 1.30
-IMG_MAX_RATIO = 2.30
+_IMG_MIN_RATIO = 1.30
+_IMG_MAX_RATIO = 2.30
 
-BATCH_SIZE = 32
+_BATCH_SIZE = 32
 
-CLOSE_BUF_SIZE = 10
-CLOSE_TIME = datetime.timedelta(seconds=5.5)
-CLOSE_TIME_FRACTION = 3
-CLOSE_DISTANCE = 0.14
-MAX_OUTLIERS = 3
+_CLOSE_BUF_SIZE = 10
+_CLOSE_TIME = datetime.timedelta(seconds=5.5)
+_CLOSE_TIME_FRACTION = 3
+_CLOSE_DISTANCE = 0.145
+_MAX_OUTLIERS = 3
+
+_SQUASH_EXP_FACTOR = 5.0
 
 EmbeddedFrame = namedtuple('EmbeddedFrame',
                            ['title', 'date', 'length', 'timestamp', 'features'])
 
 
 # Returns the "min:sec" formatted version of the given
-# second duration.
-def format_duration(s):
-    mins, secs = divmod(s, 60)
+# duration.
+def _format_duration(d):
+    mins, secs = divmod(d.seconds, 60)
     return f'{mins}:{secs:02}'
 
 
-# Returns a string representing the given datapoint.
-def format_datapoint(d):
-    date_str = d.date.strftime('%-m %b %Y')
-
-    if d.timestamp:
-        length_str = format_duration(d.length.seconds)
-        timestamp_str = format_duration(d.timestamp.seconds)
-        return f'"{d.title}" ({date_str}) [{timestamp_str}/{length_str}]'
-
-    return f'"{d.title}" ({date_str})'
-
-
-# Accepts a sorted list and a maximum delta, and returns the (inclusive)
-# indices of a range that contains the most elements without their difference
-# exceeding the delta.
-def max_close_window(ts, delta):
+# Accepts a sorted list and a delta value, and returns the (inclusive) start
+# and end indicies of a maximal sublist whose range does not exceed the delta.
+def _max_close_window(ts, delta):
     e = len(ts) - 1
     u, v = 0, 0
     best_u, best_v = 0, 0
@@ -81,34 +71,8 @@ def max_close_window(ts, delta):
     return (best_u, best_v)
 
 
-# Accepts a PIL image and returns the image in a tensor of the format needed by
-# the emebdding model (or None if the image isn't suitable for input).
-def image_to_tensor(image):
-    image_w, image_h = image.size
-
-    # Can't scale the image if it would mutate it too much.
-    if not (IMG_MIN_RATIO < image_w / image_h < IMG_MAX_RATIO):
-        return None
-
-    formatted_image = image.convert('RGB') \
-                           .resize(MODEL_INPUT_DIMS, Image.NEAREST)
-    image_array = tf.keras.utils.img_to_array(formatted_image)
-    return tf.expand_dims(image_array, 0)
-
-
-# Accepts a database and image contents and returns the best guess of the frame
-# that the image represents (or None if there is no close match). Optionally
-# accepts a progress bar to increment as the serach progresses.
-def find_nearest_frame(db, image_bytes, bar):
-    # Convert image into TF model input.
-    image = Image.open(image_bytes)
-    image_tensor = image_to_tensor(image)
-    if image_tensor is None:
-        return None
-
-    # Run embedding.
-    query_features = EMBED_IMAGE(image_tensor).numpy()[0]
-
+# Searches the database for the datapoints nearest to the given query.
+def _find_nearest_frames(db, query, bar):
     # A running tally of the closest n datapoints we've seen. Stored
     # as (dist, datapoint) for sorting purposes.
     closest = []
@@ -120,7 +84,7 @@ def find_nearest_frame(db, image_bytes, bar):
         # Collect a batch of datapoints so we can take advantage
         # of vectorised distance calculations.
         batch = []
-        for _ in range(BATCH_SIZE):
+        for _ in range(_BATCH_SIZE):
             head = db.peek(1)
             if not head:
                 break
@@ -136,38 +100,33 @@ def find_nearest_frame(db, image_bytes, bar):
             break
 
         # Find distances across the whole batch.
-        ds = spatial.distance.cdist([query_features],
-                                    [r.features for r in batch], 'cosine')[0]
+        ds = spatial.distance.cdist([query], [r.features for r in batch],
+                                    'cosine')[0]
 
         # Calculate the closest n from this batch.
-        if len(batch) > CLOSE_BUF_SIZE:
-            ids = np.argpartition(ds, CLOSE_BUF_SIZE)[:CLOSE_BUF_SIZE]
+        if len(batch) > _CLOSE_BUF_SIZE:
+            ids = np.argpartition(ds, _CLOSE_BUF_SIZE)[:_CLOSE_BUF_SIZE]
         else:
             ids = range(len(batch))
         batch_closest = [(ds[i], batch[i]) for i in ids]
 
         # Merge this batch with the closest seen so far.
         closest = sorted(closest + batch_closest,
-                         key=lambda t: t[0])[:CLOSE_BUF_SIZE]
+                         key=lambda t: t[0])[:_CLOSE_BUF_SIZE]
 
         head = db.peek(1)
 
     db.seek(0)
 
-    ## Debug output.
-    #print()
-    #for d, c in closest:
-    #    print(f'{format_datapoint(c)} <d {d}>')
+    return closest
 
-    # Only consider close datapoints.
-    close_enough = [t for t in closest if t[0] <= CLOSE_DISTANCE]
-    close_enough.sort()
-    if not close_enough:
-        return None
 
+# Accepts a list of candidate datapoints and synthesises them into one frame
+# selection.
+def _choose_nearest_frame(close_pts):
     # Calculate frequency of individual titles.
     freq = {}
-    for t in close_enough:
+    for t in close_pts:
         title = t[1].title
         freq[title] = freq.get(title, []) + [t]
 
@@ -178,14 +137,15 @@ def find_nearest_frame(db, image_bytes, bar):
     chosen_frames.sort(key=lambda c: c.timestamp)
 
     # Only a small number of titles may deviate from our modal title.
-    if len(chosen_frames) < len(close_enough) - MAX_OUTLIERS:
+    outlier_limit = min((len(close_pts) + 1) // 2, _MAX_OUTLIERS)
+    if len(chosen_frames) < len(close_pts) - outlier_limit:
         return None
 
     # Return the median close timestamp if many of the timestamps are close.
     chosen_ts = None
-    dense_ts_u, dense_ts_v = max_close_window(
-        [c.timestamp for c in chosen_frames], CLOSE_TIME)
-    if 1 + dense_ts_v - dense_ts_u > len(chosen_pts) // CLOSE_TIME_FRACTION:
+    dense_ts_u, dense_ts_v = _max_close_window(
+        [c.timestamp for c in chosen_frames], _CLOSE_TIME)
+    if 1 + dense_ts_v - dense_ts_u > len(chosen_pts) // _CLOSE_TIME_FRACTION:
         chosen_ts = chosen_frames[(dense_ts_u + dense_ts_v) // 2].timestamp
 
     chosen_frame = chosen_frames[0]
@@ -194,3 +154,81 @@ def find_nearest_frame(db, image_bytes, bar):
                          length=chosen_frame.length,
                          timestamp=chosen_ts,
                          features=None)
+
+
+# Converts a candidate title into an ad-hoc confidence score.
+def _score_title(close_pts, title):
+    # Squash distances into scores in (0, 1).
+    scores = [1 - d / _CLOSE_DISTANCE for d, c in close_pts if c.title == title]
+
+    # Pull scores towards 1.
+    return (sum(scores) / _CLOSE_BUF_SIZE)**(1 / _SQUASH_EXP_FACTOR)
+
+
+# Accepts a PIL image and returns the image in a tensor of the format needed by
+# the emebdding model (or None if the image isn't suitable for input).
+def _image_to_tensor(image):
+    image_w, image_h = image.size
+
+    # Can't scale the image if it would mutate it too much.
+    if not (_IMG_MIN_RATIO < image_w / image_h < _IMG_MAX_RATIO):
+        return None
+
+    formatted_image = image.convert('RGB') \
+                           .resize(_MODEL_INPUT_DIMS, Image.NEAREST)
+    image_array = tf.keras.utils.img_to_array(formatted_image)
+    return tf.expand_dims(image_array, 0)
+
+
+def embed_image(image):
+    image_tensor = _image_to_tensor(image)
+    if image_tensor is None:
+        return None
+
+    return _EMBED_IMAGE(image_tensor).numpy()[0]
+
+
+# Returns a string representing the given datapoint.
+def format_datapoint(d):
+    date_str = d.date.strftime('%-m %b %Y')
+
+    if d.timestamp:
+        length_str = _format_duration(d.length)
+        timestamp_str = _format_duration(d.timestamp)
+        return f'"{d.title}" ({date_str}) [{timestamp_str}/{length_str}]'
+
+    return f'"{d.title}" ({date_str})'
+
+
+# Accepts a database and image contents and returns either:
+#  a) a guess of the frame that the image most closely resembles and an ad-hoc
+#     confidence value for the match, or
+#  b) None, if there is no close match.
+# Optionally accepts a progress bar to increment as the serach progresses.
+def find_nearest_frame(db, image_bytes, bar):
+    # Generate query datapoint.
+    query_features = embed_image(Image.open(image_bytes))
+    if query_features is None:
+        return None
+
+    # Linearly search the database.
+    closest = _find_nearest_frames(db, query_features, bar)
+
+    ## Debug output.
+    #print()
+    #for d, c in closest:
+    #    print(f'{format_datapoint(c)} <d {d}>')
+
+    # Only consider close datapoints.
+    close_enough = [t for t in closest if t[0] <= _CLOSE_DISTANCE]
+    close_enough.sort()
+    if not close_enough:
+        return None
+
+    # Synthesise close points into one selection.
+    chosen = _choose_nearest_frame(close_enough)
+    if not chosen:
+        return None
+
+    # Include a confidence score.
+    return chosen, _score_title(close_enough, chosen.title)

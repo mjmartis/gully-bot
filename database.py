@@ -9,7 +9,7 @@ import pathlib
 import pickle
 import sys
 
-from common import EMBED_IMAGE, EmbeddedFrame, image_to_tensor
+from common import embed_image, EmbeddedFrame
 
 import cv2
 from PIL import Image
@@ -67,12 +67,9 @@ def main():
 
             # Massage frame into format required by TF.
             frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-            frame_tensor = image_to_tensor(Image.fromarray(frame))
-            if frame_tensor is None:
+            embedded = embed_image(Image.fromarray(frame))
+            if embedded is None:
                 continue
-
-            # Embed image.
-            embedded = EMBED_IMAGE(frame_tensor).numpy()[0]
 
             # Write binary blob.
             record = EmbeddedFrame(

@@ -19,13 +19,15 @@ def main():
     bar = Bar('Searching',
               max=os.path.getsize(sys.argv[1]),
               suffix='%(percent)d%%')
-    chosen = find_nearest_frame(db, image, bar)
+    result = find_nearest_frame(db, image, bar)
     bar.finish()
     image.close()
     db.close()
 
-    if chosen:
-        print(format_datapoint(chosen))
+    if result:
+        c, s = result
+        print(format_datapoint(c))
+        print(f'Confidence: {s}')
     else:
         print('Not found.')
 

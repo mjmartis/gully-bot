@@ -33,7 +33,7 @@ def main():
     db = open(sys.argv[2], 'rb')
 
     # Watch incoming posts.
-    for sub in subreddit.top(time_filter="all"):
+    for sub in subreddit.top(time_filter="year"):
         #for sub in subreddit.stream.submissions(skip_existing=True):
         # Need submission to include a link.
         if sub.is_self:
@@ -47,13 +47,15 @@ def main():
         print(f'Image link: "{sub.url}"')
         image = io.BytesIO(requests.get(sub.url).content)
         bar = Bar('Searching', max=db_size, suffix='%(percent)d%%')
-        chosen = find_nearest_frame(db, image, bar)
+        result = find_nearest_frame(db, image, bar)
         bar.finish()
         image.close()
 
         # TODO: construct and post comment.
-        if chosen:
-            print(format_datapoint(chosen))
+        if result:
+            c, s = result
+            print(format_datapoint(c))
+            print(f'Confidence: {s:.02}')
         else:
             print('Not found.')
         print('-------')
