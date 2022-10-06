@@ -15,7 +15,7 @@ import cv2
 from PIL import Image
 from progress.bar import Bar
 
-SAMPLE_HZ = 2
+SAMPLE_HZ = 4
 
 
 # Parse date and video title from full path, with stem in the
@@ -51,7 +51,7 @@ def main():
         # Display progress bar.
         progress_text = f'[{i+1:03}/{len(sys.argv)-2}] {title}'
         bar = Bar(f'{progress_text:30.30}',
-                  max=frame_count // frame_stride + 1,
+                  max=frame_count // frame_stride,
                   suffix='%(percent)d%%')
 
         # Process frames for this video.

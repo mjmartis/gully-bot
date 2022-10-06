@@ -32,10 +32,11 @@ IMG_MAX_RATIO = 2.30
 
 BATCH_SIZE = 32
 
-CANDIDATES_SIZE = 5
+CLOSE_BUF_SIZE = 10
 CLOSE_TIME = datetime.timedelta(seconds=5.5)
-MAX_DISTANCE = 0.135
-MAX_OUTLIERS = 1
+CLOSE_TIME_FRACTION = 3
+CLOSE_DISTANCE = 0.14
+MAX_OUTLIERS = 3
 
 EmbeddedFrame = namedtuple('EmbeddedFrame',
                            ['title', 'date', 'length', 'timestamp', 'features'])
@@ -58,6 +59,26 @@ def format_datapoint(d):
         return f'"{d.title}" ({date_str}) [{timestamp_str}/{length_str}]'
 
     return f'"{d.title}" ({date_str})'
+
+
+# Accepts a sorted list and a maximum delta, and returns the (inclusive)
+# indices of a range that contains the most elements without their difference
+# exceeding the delta.
+def max_close_window(ts, delta):
+    e = len(ts) - 1
+    u, v = 0, 0
+    best_u, best_v = 0, 0
+    while v < e or ts[v] - ts[u] > delta:
+        while ts[v] - ts[u] > delta:
+            u += 1
+
+        if v - u > best_v - best_u:
+            best_u, best_v = u, v
+
+        if v < e:
+            v += 1
+
+    return (best_u, best_v)
 
 
 # Accepts a PIL image and returns the image in a tensor of the format needed by
@@ -119,15 +140,15 @@ def find_nearest_frame(db, image_bytes, bar):
                                     [r.features for r in batch], 'cosine')[0]
 
         # Calculate the closest n from this batch.
-        if len(batch) > CANDIDATES_SIZE:
-            ids = np.argpartition(ds, CANDIDATES_SIZE)[:CANDIDATES_SIZE]
+        if len(batch) > CLOSE_BUF_SIZE:
+            ids = np.argpartition(ds, CLOSE_BUF_SIZE)[:CLOSE_BUF_SIZE]
         else:
             ids = range(len(batch))
         batch_closest = [(ds[i], batch[i]) for i in ids]
 
         # Merge this batch with the closest seen so far.
         closest = sorted(closest + batch_closest,
-                         key=lambda t: t[0])[:CANDIDATES_SIZE]
+                         key=lambda t: t[0])[:CLOSE_BUF_SIZE]
 
         head = db.peek(1)
 
@@ -138,28 +159,39 @@ def find_nearest_frame(db, image_bytes, bar):
     #for d, c in closest:
     #    print(f'{format_datapoint(c)} <d {d}>')
 
-    # Choose closest frame.
-    chosen_dist, chosen = closest[0]
-    candidates = [c for _, c in closest]
-    candidates_len = len(candidates)
-
-    # Selection must be moderately close.
-    if chosen_dist > MAX_DISTANCE:
+    # Only consider close datapoints.
+    close_enough = [t for t in closest if t[0] <= CLOSE_DISTANCE]
+    close_enough.sort()
+    if not close_enough:
         return None
 
-    # Can only have limited outlier titles.
-    candidates = [c for c in candidates if c.title == chosen.title]
-    if len(candidates) < candidates_len - MAX_OUTLIERS:
+    # Calculate frequency of individual titles.
+    freq = {}
+    for t in close_enough:
+        title = t[1].title
+        freq[title] = freq.get(title, []) + [t]
+
+    # A title is better if it is more frequent than the others, or else if its
+    # closest distance is less than the others.
+    better = lambda t: (len(t[1]), -t[1][0][0])
+    chosen_pts = max(freq.items(), key=better)[1]
+    chosen_frames = [c for (_, c) in chosen_pts]
+
+    # Only a small number of titles may deviate from our modal title.
+    if len(chosen_frames) < len(close_enough) - MAX_OUTLIERS:
         return None
 
-    # If most of the candidates are far away from our selection
-    # chronologically, then don't offer timestamp.
-    half_count = len(candidates) // 2
-    far = lambda c1, c2: abs(c1.timestamp - c2.timestamp) > CLOSE_TIME
-    no_ts = sum(far(c, chosen) for c in candidates) > half_count
+    # Return the median close timestamp if many of the timestamps are close.
+    chosen_by_ts = sorted(chosen_frames, key=lambda c: c.timestamp)
+    chosen_ts = None
+    dense_ts_u, dense_ts_v = max_close_window(
+        [c.timestamp for c in chosen_by_ts], CLOSE_TIME)
+    if 1 + dense_ts_v - dense_ts_u > len(chosen_pts) // CLOSE_TIME_FRACTION:
+        chosen_ts = chosen_by_ts[(dense_ts_u + dense_ts_v) // 2].timestamp
 
-    return EmbeddedFrame(title=chosen.title,
-                         date=chosen.date,
-                         length=chosen.length,
-                         timestamp=None if no_ts else chosen.timestamp,
+    chosen_frame = chosen_frames[0]
+    return EmbeddedFrame(title=chosen_frame.title,
+                         date=chosen_frame.date,
+                         length=chosen_frame.length,
+                         timestamp=chosen_ts,
                          features=None)
