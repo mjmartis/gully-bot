@@ -173,21 +173,20 @@ def find_nearest_frame(db, image_bytes, bar):
 
     # A title is better if it is more frequent than the others, or else if its
     # closest distance is less than the others.
-    better = lambda t: (len(t[1]), -t[1][0][0])
-    chosen_pts = max(freq.items(), key=better)[1]
+    chosen_pts = max(freq.items(), key=lambda t: (len(t[1]), -t[1][0][0]))[1]
     chosen_frames = [c for (_, c) in chosen_pts]
+    chosen_frames.sort(key=lambda c: c.timestamp)
 
     # Only a small number of titles may deviate from our modal title.
     if len(chosen_frames) < len(close_enough) - MAX_OUTLIERS:
         return None
 
     # Return the median close timestamp if many of the timestamps are close.
-    chosen_by_ts = sorted(chosen_frames, key=lambda c: c.timestamp)
     chosen_ts = None
     dense_ts_u, dense_ts_v = max_close_window(
-        [c.timestamp for c in chosen_by_ts], CLOSE_TIME)
+        [c.timestamp for c in chosen_frames], CLOSE_TIME)
     if 1 + dense_ts_v - dense_ts_u > len(chosen_pts) // CLOSE_TIME_FRACTION:
-        chosen_ts = chosen_by_ts[(dense_ts_u + dense_ts_v) // 2].timestamp
+        chosen_ts = chosen_frames[(dense_ts_u + dense_ts_v) // 2].timestamp
 
     chosen_frame = chosen_frames[0]
     return EmbeddedFrame(title=chosen_frame.title,
