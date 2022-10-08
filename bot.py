@@ -29,8 +29,8 @@ POST_TEXT = \
     'If you have to ask which episode... *then you don\'t know*. ' + \
     'This looks like a frame from {}.' + \
     '\n\n' + \
-    '^(Confidence score: {:.02}. For more info, check out ' + \
-    'my [source code]({}).)'
+    '^(Confidence score: {:.02}. For more info, check out my) ' + \
+    '[^(source code)]({})^.'
 
 
 # Attempts to download the given file, bailing out if it is too large or the
@@ -108,7 +108,6 @@ def main():
     db = open(sys.argv[2], 'rb')
 
     # Watch incoming posts.
-    #for sub in subreddit.top(time_filter="year"):
     for sub in subreddit.stream.submissions(skip_existing=True):
         # Need submission to include a link.
         if sub.is_self:
@@ -142,7 +141,7 @@ def main():
 
         image.close()
 
-        # TODO: construct and post comment.
+        # Construct and post reply.
         if result:
             c, s = result
             sub.reply(
