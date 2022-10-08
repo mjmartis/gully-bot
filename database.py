@@ -12,10 +12,11 @@ import sys
 from common import embed_image, EmbeddedFrame
 
 import cv2
+import numpy as np
 from PIL import Image
 from progress.bar import Bar
 
-SAMPLE_HZ = 4
+SAMPLE_HZ = 12.0
 
 
 # Parse date and video title from full path, with stem in the
@@ -45,21 +46,25 @@ def main():
         # Read video.
         cap = cv2.VideoCapture(video_path)
         fps = cap.get(cv2.CAP_PROP_FPS)
-        frame_stride = int(fps / SAMPLE_HZ)
+        if fps == 0.0:
+            print(f'Error can\'t read FPS for "{title}".')
+            continue
+
+        frame_stride = fps / SAMPLE_HZ
         frame_count = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
 
         # Display progress bar.
         progress_text = f'[{i+1:03}/{len(sys.argv)-2}] {title}'
         bar = Bar(f'{progress_text:30.30}',
-                  max=frame_count // frame_stride,
+                  max=int(frame_count / frame_stride),
                   suffix='%(percent)d%%')
 
         # Process frames for this video.
-        for frame_index in range(0, frame_count, frame_stride):
+        for frame_index in np.arange(0.0, frame_count, frame_stride):
             bar.next()
 
             # Jump to and read frame.
-            cap.set(cv2.CAP_PROP_POS_FRAMES, frame_index)
+            cap.set(cv2.CAP_PROP_POS_FRAMES, int(frame_index))
             ret, frame = cap.read()
             if not ret:
                 print(f'Failed to read "{title}" frame {frame_index}.')

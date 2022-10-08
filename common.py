@@ -18,11 +18,6 @@ logging.getLogger('tensorflow').setLevel(logging.FATAL)
 import tensorflow as tf
 import tensorflow_hub as hub
 
-# A patch after migrating type location. TODO: update db and remove this.
-import common
-
-sys.modules['gully_types'] = common
-
 # Embedding model metadata.
 _MODEL_DIR = 'imagenet_mobilenet_v2_140_224_feature_vector'
 _MODEL_INPUT_DIMS = (224, 224)
@@ -195,9 +190,9 @@ def format_datapoint(d):
     if d.timestamp:
         length_str = _format_duration(d.length)
         timestamp_str = _format_duration(d.timestamp)
-        return f'"{d.title}" ({date_str}) [{timestamp_str}/{length_str}]'
+        return f'**{d.title}** [{timestamp_str}/{length_str}] ({date_str})'
 
-    return f'"{d.title}" ({date_str})'
+    return f'**{d.title}** ({date_str})'
 
 
 # Accepts a database and image contents and returns either:
