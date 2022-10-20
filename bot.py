@@ -5,13 +5,14 @@ from http import HTTPStatus
 import io
 import json
 import mimetypes
+import pickle
 import requests
 import sys
 import os
 from os import path
 from urllib.parse import urlparse
 
-from common import EmbeddedFrame, find_nearest_frame, format_datapoint
+from common import EmbeddedFrame, find_nearest_frame, format_datapoint, init_nn_db
 
 import praw
 from progress.bar import Bar
@@ -94,8 +95,8 @@ def attempt_download(url):
 
 
 def main():
-    if len(sys.argv) != 3:
-        print(f'Usage: {sys.argv[0]} <auth json> <db>')
+    if len(sys.argv) != 4:
+        print(f'Usage: {sys.argv[0]} <auth json> <metadata list> <nn db>')
         exit()
 
     # Authenticate Reddit bot.
@@ -103,9 +104,13 @@ def main():
         reddit = praw.Reddit(**json.load(f))
     subreddit = reddit.subreddit(SUBREDDIT)
 
-    # Load database.
-    db_size = os.path.getsize(sys.argv[2])
-    db = open(sys.argv[2], 'rb')
+    # Load metadata list.
+    with open(sys.argv[2], 'rb') as md_f:
+        mds = pickle.load(md_f)
+
+    # Initialise NN database from disk.
+    nn_db = init_nn_db()
+    nn_db.load(sys.argv[3])
 
     # Watch incoming posts.
     for sub in subreddit.stream.submissions(skip_existing=True):
@@ -135,9 +140,7 @@ def main():
             continue
 
         # Perform actual frame matching.
-        bar = Bar('Searching  ', max=db_size, suffix='%(percent)d%%')
-        result = find_nearest_frame(db, image, bar)
-        bar.finish()
+        result = find_nearest_frame(mds, nn_db, image)
 
         image.close()
 
@@ -153,6 +156,8 @@ def main():
         else:
             print('Not found.')
         print()
+
+    nn_db.unload()
 
 
 if __name__ == "__main__":

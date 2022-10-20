@@ -7,6 +7,7 @@ import os
 import pickle
 import sys
 
+from annoy import AnnoyIndex
 import numpy as np
 from PIL import Image
 from progress.bar import Bar
@@ -27,15 +28,16 @@ _IMG_BORDER_THRESHOLD = 10
 _IMG_MIN_RATIO = 1.30
 _IMG_MAX_RATIO = 2.30
 
-_BATCH_SIZE = 32
-
 _CLOSE_BUF_SIZE = 10
 _CLOSE_TIME = datetime.timedelta(seconds=5.5)
 _CLOSE_TIME_FRACTION = 3
-_CLOSE_DISTANCE = 0.145
+_CLOSE_DISTANCE = 0.40
 _MAX_OUTLIERS = 3
 
 _SQUASH_EXP_FACTOR = 5.0
+
+_FEATURE_VECTOR_LEN = 1792
+_DIST_METRIC = 'angular'
 
 EmbeddedFrame = namedtuple('EmbeddedFrame',
                            ['title', 'date', 'length', 'timestamp', 'features'])
@@ -68,53 +70,16 @@ def _max_close_window(ts, delta):
 
 
 # Searches the database for the datapoints nearest to the given query.
-def _find_nearest_frames(db, query, bar):
-    # A running tally of the closest n datapoints we've seen. Stored
-    # as (dist, datapoint) for sorting purposes.
-    closest = []
+def _find_nearest_frames(mds, nn_db, query):
+    # Get metadata indices of closest points. Stored as:
+    #   [index list, distance list].
+    query_results = nn_db.get_nns_by_vector(query,
+                                            _CLOSE_BUF_SIZE,
+                                            include_distances=True)
 
-    # Keep going until we hit the end of the file.
-    db.seek(0)
-    db_progress = 0
-    while True:
-        # Collect a batch of datapoints so we can take advantage
-        # of vectorised distance calculations.
-        batch = []
-        for _ in range(_BATCH_SIZE):
-            head = db.peek(1)
-            if not head:
-                break
-
-            batch.append(pickle.load(db))
-
-        # Advance progress bar.
-        if bar:
-            bar.next(db.tell() - db_progress)
-        db_progress = db.tell()
-
-        if not batch:
-            break
-
-        # Find distances across the whole batch.
-        ds = spatial.distance.cdist([query], [r.features for r in batch],
-                                    'cosine')[0]
-
-        # Calculate the closest n from this batch.
-        if len(batch) > _CLOSE_BUF_SIZE:
-            ids = np.argpartition(ds, _CLOSE_BUF_SIZE)[:_CLOSE_BUF_SIZE]
-        else:
-            ids = range(len(batch))
-        batch_closest = [(ds[i], batch[i]) for i in ids]
-
-        # Merge this batch with the closest seen so far.
-        closest = sorted(closest + batch_closest,
-                         key=lambda t: t[0])[:_CLOSE_BUF_SIZE]
-
-        head = db.peek(1)
-
-    db.seek(0)
-
-    return closest
+    # Reconstruct records of closest points. Stored as (dist, datapoint) for
+    # sorting purposes.
+    return sorted((d, mds[i]) for i, d in zip(*query_results))
 
 
 # Accepts a list of candidate datapoints and synthesises them into one frame
@@ -211,15 +176,14 @@ def format_datapoint(d):
 #  a) a guess of the frame that the image most closely resembles and an ad-hoc
 #     confidence value for the match, or
 #  b) None, if there is no close match.
-# Optionally accepts a progress bar to increment as the serach progresses.
-def find_nearest_frame(db, image_bytes, bar):
+def find_nearest_frame(mds, nn_db, image_bytes):
     # Generate query datapoint.
     query_features = embed_image(Image.open(image_bytes))
     if query_features is None:
         return None
 
-    # Linearly search the database.
-    closest = _find_nearest_frames(db, query_features, bar)
+    # Search the database.
+    closest = _find_nearest_frames(mds, nn_db, query_features)
 
     ## Debug output.
     #print()
@@ -239,3 +203,8 @@ def find_nearest_frame(db, image_bytes, bar):
 
     # Include a confidence score.
     return chosen, _score_title(close_enough, chosen.title)
+
+
+# Initializes a NN database with the parameters needed for our embedding.
+def init_nn_db():
+    return AnnoyIndex(_FEATURE_VECTOR_LEN, _DIST_METRIC)

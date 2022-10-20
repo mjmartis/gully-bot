@@ -2,27 +2,28 @@
 #   Usage: query.py <index file> <image file>
 
 import os
+import pickle
 import sys
+from datetime import datetime
 
-from common import EmbeddedFrame, find_nearest_frame, format_datapoint
-
-from progress.bar import Bar
+from common import EmbeddedFrame, find_nearest_frame, format_datapoint, init_nn_db
 
 
 def main():
-    if len(sys.argv) != 3:
-        print(f'Usage: {sys.argv[0]} <index file> <image file>')
+    if len(sys.argv) != 4:
+        print(f'Usage: {sys.argv[0]} <metadata db> <nn db> <image file>')
         exit(1)
 
-    db = open(sys.argv[1], 'rb')
-    image = open(sys.argv[2], 'rb')
-    bar = Bar('Searching',
-              max=os.path.getsize(sys.argv[1]),
-              suffix='%(percent)d%%')
-    result = find_nearest_frame(db, image, bar)
-    bar.finish()
+    with open(sys.argv[1], 'rb') as md_f:
+        mds = pickle.load(md_f)
+    nn_db = init_nn_db()
+    nn_db.load(sys.argv[2])
+    image = open(sys.argv[3], 'rb')
+
+    result = find_nearest_frame(mds, nn_db, image)
+
     image.close()
-    db.close()
+    nn_db.unload()
 
     if result:
         c, s = result
