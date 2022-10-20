@@ -15,6 +15,7 @@ from urllib.parse import urlparse
 from common import EmbeddedFrame, find_nearest_frame, format_datapoint, init_nn_db
 
 import praw
+import praw.exceptions
 from progress.bar import Bar
 
 #SUBREDDIT = 'jakeandamir'
@@ -147,8 +148,13 @@ def main():
         # Construct and post reply.
         if result:
             c, s = result
-            sub.reply(
-                body=POST_TEXT.format(format_datapoint(c), s, PROJECT_URL))
+
+            try:
+                sub.reply(
+                    body=POST_TEXT.format(format_datapoint(c), s, PROJECT_URL))
+            except praw.exceptions.RedditAPIException:
+                print('Reddit API error.')
+                continue
 
             print('Result:')
             print('', format_datapoint(c))
