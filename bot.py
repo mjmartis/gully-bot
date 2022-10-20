@@ -37,7 +37,7 @@ POST_TEXT = \
 # download takes too long. Displays a progress bar.
 #
 # Based on: https://stackoverflow.com/a/22347526.
-def maybe_download(url):
+def attempt_download(url):
     start_ts = datetime.datetime.now()
 
     # Try to fetch file.
@@ -130,7 +130,7 @@ def main():
         print(f'Image link: "{sub.url}"')
 
         # Download image if it is small enough and doesn't take too long.
-        image = maybe_download(sub.url)
+        image = attempt_download(sub.url)
         if not image:
             continue
 

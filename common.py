@@ -23,6 +23,7 @@ _MODEL_DIR = 'imagenet_mobilenet_v2_140_224_feature_vector'
 _MODEL_INPUT_DIMS = (224, 224)
 _EMBED_IMAGE = hub.KerasLayer(_MODEL_DIR)
 
+_IMG_BORDER_THRESHOLD = 10
 _IMG_MIN_RATIO = 1.30
 _IMG_MAX_RATIO = 2.30
 
@@ -160,21 +161,32 @@ def _score_title(close_pts, title):
     return (sum(scores) / _CLOSE_BUF_SIZE)**(1 / _SQUASH_EXP_FACTOR)
 
 
+# Accepts a PIL image and returns a version of the image with any black border
+# removed. A pixel is considered "black" if all of its channels have magnitude
+# less than a small threshold.
+def _crop_image_border(image):
+    y_light, x_light, _ = (np.asarray(image) > _IMG_BORDER_THRESHOLD).nonzero()
+    return image.crop(
+        (np.min(x_light), np.min(y_light), np.max(x_light), np.max(y_light)))
+
+
 # Accepts a PIL image and returns the image in a tensor of the format needed by
 # the emebdding model (or None if the image isn't suitable for input).
 def _image_to_tensor(image):
-    image_w, image_h = image.size
+    cropped_image = _crop_image_border(image.convert('RGB'))
+    image_w, image_h = cropped_image.size
 
     # Can't scale the image if it would mutate it too much.
     if not (_IMG_MIN_RATIO < image_w / image_h < _IMG_MAX_RATIO):
         return None
 
-    formatted_image = image.convert('RGB') \
-                           .resize(_MODEL_INPUT_DIMS, Image.NEAREST)
+    formatted_image = cropped_image.resize(_MODEL_INPUT_DIMS, Image.NEAREST)
     image_array = tf.keras.utils.img_to_array(formatted_image)
     return tf.expand_dims(image_array, 0)
 
 
+# Accepts a PIL image and returns its corresponding vector in the embedding
+# space, if it is viable to embed.
 def embed_image(image):
     image_tensor = _image_to_tensor(image)
     if image_tensor is None:
