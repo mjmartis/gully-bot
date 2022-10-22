@@ -25,6 +25,8 @@ _MODEL_INPUT_DIMS = (224, 224)
 _EMBED_IMAGE = hub.KerasLayer(_MODEL_DIR)
 
 _IMG_BORDER_THRESHOLD = 10
+_IMG_MIN_WIDTH = 224
+_IMG_MIN_HEIGHT = 224
 _IMG_MIN_RATIO = 1.30
 _IMG_MAX_RATIO = 2.30
 
@@ -131,6 +133,11 @@ def _score_title(close_pts, title):
 # less than a small threshold.
 def _crop_image_border(image):
     y_light, x_light, _ = (np.asarray(image) > _IMG_BORDER_THRESHOLD).nonzero()
+
+    # All black.
+    if len(y_light) == 0:
+        return Image.new('RGB', (0, 0))
+
     return image.crop(
         (np.min(x_light), np.min(y_light), np.max(x_light), np.max(y_light)))
 
@@ -142,7 +149,8 @@ def _image_to_tensor(image):
     image_w, image_h = cropped_image.size
 
     # Can't scale the image if it would mutate it too much.
-    if not (_IMG_MIN_RATIO < image_w / image_h < _IMG_MAX_RATIO):
+    if image_w < _IMG_MIN_WIDTH or image_h < _IMG_MIN_HEIGHT or \
+       not (_IMG_MIN_RATIO < image_w / image_h < _IMG_MAX_RATIO):
         return None
 
     formatted_image = cropped_image.resize(_MODEL_INPUT_DIMS, Image.NEAREST)

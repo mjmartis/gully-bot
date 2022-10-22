@@ -1,6 +1,6 @@
 # Produce an index of image feature vectors for frames
 # of the given images.
-#  Usage: python3 database.py <output file> <input files...>
+#  Usage: python3 database.py <output md> <output nn> <input files...>
 
 import datetime
 import logging
@@ -9,14 +9,16 @@ import pathlib
 import pickle
 import sys
 
-from common import embed_image, EmbeddedFrame
+from common import embed_image, EmbeddedFrame, init_nn_db
 
+from annoy import AnnoyIndex
 import cv2
 import numpy as np
 from PIL import Image
 from progress.bar import Bar
 
-SAMPLE_HZ = 12.0
+SAMPLE_HZ = 4.0
+TREES_COUNT = 30
 
 
 # Parse date and video title from full path, with stem in the
@@ -31,15 +33,18 @@ def parse_video_path(path):
 
 
 def main():
-    if len(sys.argv) < 3:
-        print(f'Usage: {sys.argv[0]} <output file> <input files...>')
+    if len(sys.argv) < 4:
+        print(f'Usage: {sys.argv[0]} <output md> <output nn> <input files...>')
         exit(1)
 
-    # Open output index.
-    output = open(sys.argv[1], 'ab')
+    # Open NN index on disk.
+    nn_db = init_nn_db()
+    nn_db.on_disk_build(sys.argv[2])
 
     # Process each video.
-    for i, video_path in enumerate(sys.argv[2:]):
+    mds = []
+    nn_db_i = 0
+    for i, video_path in enumerate(sys.argv[3:]):
         # Extract metadata.
         date, title = parse_video_path(video_path)
 
@@ -54,7 +59,7 @@ def main():
         frame_count = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
 
         # Display progress bar.
-        progress_text = f'[{i+1:03}/{len(sys.argv)-2}] {title}'
+        progress_text = f'[{i+1:03}/{len(sys.argv)-3}] {title}'
         bar = Bar(f'{progress_text:30.30}',
                   max=int(frame_count / frame_stride),
                   suffix='%(percent)d%%')
@@ -76,18 +81,29 @@ def main():
             if embedded is None:
                 continue
 
-            # Write binary blob.
-            record = EmbeddedFrame(
+            # Append metadata to metadata database.
+            metadata = EmbeddedFrame(
                 title=title,
                 date=date,
                 length=datetime.timedelta(seconds=frame_count / fps),
                 timestamp=datetime.timedelta(seconds=frame_index / fps),
-                features=embedded)
-            pickle.dump(record, output)
+                features=None)
+            mds.append(metadata)
+
+            # Add features to NN database.
+            nn_db.add_item(nn_db_i, embedded)
+            nn_db_i += 1
 
         bar.finish()
 
-    output.close()
+    # Write metadata.
+    with open(sys.argv[1]) as md_db:
+        pickle.dump(mds, md_db)
+
+    # Construct actual NN truee.
+    print('Building NN index... ', end='', flush=True)
+    nn_db.build(TREES_COUNT)
+    print('done.')
 
 
 if __name__ == "__main__":
