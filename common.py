@@ -9,10 +9,10 @@ import pickle
 import sys
 
 from annoy import AnnoyIndex
+import cv2
 import numpy as np
 from PIL import Image
 from progress.bar import Bar
-from scipy import spatial
 
 # Silence chatty TF.
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'  # FATAL
@@ -41,6 +41,8 @@ _SQUASH_EXP_FACTOR = 5.0
 
 _FEATURE_VECTOR_LEN = 1792
 _DIST_METRIC = 'angular'
+
+_SAMPLE_HZ = 4.0
 
 EmbeddedFrame = namedtuple('EmbeddedFrame',
                            ['title', 'date', 'length', 'timestamp', 'features'])
@@ -228,3 +230,47 @@ def parse_video_path(path):
     sep_index = path_stem.find(' ')
     date = datetime.datetime.strptime(path_stem[:sep_index], '%Y-%m-%d')
     return (date, path_stem[sep_index + 1:])
+
+
+# Embeds a sample of video frames and runs the specified function on the result.
+def embed_video_frames(video_path, process_fn, bar):
+    date, title = parse_video_path(video_path)
+
+    # Read video.
+    cap = cv2.VideoCapture(video_path)
+    fps = cap.get(cv2.CAP_PROP_FPS)
+    if fps == 0.0:
+        print()
+        print(f'Error can\'t read FPS for "{title}".')
+        return
+
+    frame_stride = fps / _SAMPLE_HZ
+    frame_count = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+
+    # Process frames for this video.
+    for frame_index in np.arange(0.0, frame_count, frame_stride):
+        if bar:
+            bar.next(frame_stride / frame_count)
+
+        # Jump to and read frame.
+        cap.set(cv2.CAP_PROP_POS_FRAMES, int(frame_index))
+        ret, frame = cap.read()
+        if not ret:
+            print()
+            print(f'Failed to read "{title}" frame {frame_index}.')
+            continue
+
+        # Massage frame into format required by TF.
+        frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+        embedded = embed_image(Image.fromarray(frame))
+        if embedded is None:
+            continue
+
+        # Pass data to processer function.
+        record = EmbeddedFrame(
+            title=title,
+            date=date,
+            length=datetime.timedelta(seconds=frame_count / fps),
+            timestamp=datetime.timedelta(seconds=frame_index / fps),
+            features=embedded)
+        process_fn(record)

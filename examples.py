@@ -5,18 +5,14 @@ import datetime
 import random
 import sys
 
-from common import embed_image, EmbeddedFrame, parse_video_path
+from common import EmbeddedFrame, parse_video_path, embed_video_frames
 
 import tensorflow as tf
-import cv2
 import numpy as np
-from PIL import Image
 from progress.bar import Bar
-from scipy import spatial
 
-BATCH_SIZE = 32
-SAMPLE_HZ = 4.0
 EXAMPLES_PER_FRAME = 5
+
 
 # Accepts a "positive" array of embedded frames from one video and a "negative"
 # array of embedded frames from a different video. Produces random training
@@ -30,49 +26,6 @@ def choose_triplets(ps, ns):
     negatives = ns[np.random.choice(ns.shape[0], sample_count)]
 
     return zip(anchors, positives, negatives)
-
-
-# Embeds a sample of video frames and runs the specified function on the result.
-# TODO: merge with code in database.py.
-def embed_video_frames(video_path, process_fn, bar):
-    date, title = parse_video_path(video_path)
-
-    # Read video.
-    cap = cv2.VideoCapture(video_path)
-    fps = cap.get(cv2.CAP_PROP_FPS)
-    if fps == 0.0:
-        print(f'Error can\'t read FPS for "{title}".')
-        return
-
-    frame_stride = fps / SAMPLE_HZ
-    frame_count = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
-
-    # Process frames for this video.
-    for frame_index in np.arange(0.0, frame_count, frame_stride):
-        if bar:
-            bar.next(frame_stride / frame_count)
-
-        # Jump to and read frame.
-        cap.set(cv2.CAP_PROP_POS_FRAMES, int(frame_index))
-        ret, frame = cap.read()
-        if not ret:
-            print(f'Failed to read "{title}" frame {frame_index}.')
-            continue
-
-        # Massage frame into format required by TF.
-        frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-        embedded = embed_image(Image.fromarray(frame))
-        if embedded is None:
-            continue
-
-        # Pass data to processer function.
-        record = EmbeddedFrame(
-            title=title,
-            date=date,
-            length=datetime.timedelta(seconds=frame_count / fps),
-            timestamp=datetime.timedelta(seconds=frame_index / fps),
-            features=embedded)
-        process_fn(record)
 
 
 # Converts a float list into a TF feature.
@@ -102,7 +55,7 @@ def generate_examples(video_paths, output_file):
 
             # Display progress bar.
             progress_text = f'[{i+1:03}/{len(video_paths)}] {title}'
-            bar = Bar(f'{progress_text:30.30}', max=1.0, suffix='%(percent)d%%')
+            bar = Bar(f'{progress_text:40.40}', max=1.0, suffix='%(percent)d%%')
 
             # Store all feature vectors for this video.
             cur = []
