@@ -4,6 +4,7 @@ from collections import namedtuple
 import datetime
 import logging
 import os
+import pathlib
 import pickle
 import sys
 
@@ -216,3 +217,14 @@ def find_nearest_frame(mds, nn_db, image_bytes):
 # Initializes a NN database with the parameters needed for our embedding.
 def init_nn_db():
     return AnnoyIndex(_FEATURE_VECTOR_LEN, _DIST_METRIC)
+
+
+# Parse date and video title from full path, with stem in the
+# in the format:
+#  YYYY-MM-DD NAME
+# Returns (name, date) tuple.
+def parse_video_path(path):
+    path_stem = pathlib.Path(path).stem
+    sep_index = path_stem.find(' ')
+    date = datetime.datetime.strptime(path_stem[:sep_index], '%Y-%m-%d')
+    return (date, path_stem[sep_index + 1:])

@@ -16,56 +16,46 @@ from scipy import spatial
 
 BATCH_SIZE = 32
 SAMPLE_HZ = 4.0
+EXAMPLES_PER_FRAME = 5
 
 
-# Batch produces distances from a given point to a list of others to take
-# advantage of vectorised operations.
-def batch_cosine_dists(u, vs):
-    dists = []
-    i = 0
-    while True:
-        # Populate current batch.
-        batch = []
-        for _ in range(BATCH_SIZE):
-            if i == len(vs):
-                break
-
-            batch.append(vs[i])
-            i += 1
-
-        if not batch:
-            break
-
-        # Find distances across the whole batch.
-        batch_dists = spatial.distance.cdist([u], batch, 'cosine')[0]
-
-        dists += batch_dists.tolist()
-
-    return dists
+# Get weighted random indices per-row.
+# From: https://stackoverflow.com/a/47722393/2045715.
+def row_rand_indices(m):
+    return (m.cumsum(1) > np.random.rand(m.shape[0])[:, None]).argmax(1)
 
 
-# Accepts a base point, a list of frames from the same video and a list of
-# frames from an adjacent different video. Randomly produces a "hard" training
-# triplet as follows:
-#   1) The first entry in the triplet is the given base point.
-#   2) The second entry is randomly chosen from the same video with weight
-#      proportional to distance (i.e. a point 2x further away is twice as likely
-#      to be chosen). This preferentially chooses dissimilar frames within the
-#      same video.
-#   3) The third entry is randomly chosen from the different video with weight
-#      proportional to proximity (i.e. a point 2x closer is twice as likely to
-#      be chosen). This preferentially chooses similar frames within the
-#      different video.
-#
-# TODO: vectorise for speed.
-def choose_triplet(a, ps, ns):
-    pos_dists = batch_cosine_dists(a, ps)
-    neg_dists = batch_cosine_dists(a, ns)
+# Accepts a "positive" array of embedded frames from one video and a "negative"
+# array of embedded frames from a different video. Randomly produces ~hard~
+# training triplets as follows:
+#   1) The first entry in the triplet is a point from the positive array.
+#   2) The second entry is randomly chosen from the positive array with
+#      likelihood proportional to distance (i.e. a point 2x further away is
+#      twice as likely to be chosen). This preferentially chooses dissimilar
+#      frames within the same video.
+#   3) The third entry is randomly chosen from the negative array with
+#      likelihood proportional to proximity (i.e. a point 2x closer is twice as
+#      likely to be chosen). This preferentially chooses similar frames within
+#      the different video.
+def choose_triplets(ps, ns):
+    # Calculate all-pairs dists.
+    pos_dists = spatial.distance.cdist(ps, ps, 'cosine')
+    neg_dists = np.reciprocal(spatial.distance.cdist(ps, ns, 'cosine'))
 
-    p = random.choices(ps, weights=pos_dists)[0]
-    n = random.choices(ns, weights=[1.0 / d for d in neg_dists])[0]
+    # Row-wise normalise sums to 1. From: https://stackoverflow.com/a/16202486/2045715.
+    pos_probs = pos_dists / pos_dists.sum(axis=1, keepdims=True)
+    neg_probs = neg_dists / neg_dists.sum(axis=1, keepdims=True)
 
-    return (a, p, n)
+    # Generate a number of probability dists per anchor.
+    pos_all_probs = np.concatenate(
+        [pos_probs for _ in range(EXAMPLES_PER_FRAME)])
+    neg_all_probs = np.concatenate(
+        [neg_probs for _ in range(EXAMPLES_PER_FRAME)])
+
+    pos_rand_idxs = row_rand_indices(pos_all_probs)
+    neg_rand_idxs = row_rand_indices(neg_all_probs)
+
+    return zip(ps, ps[pos_rand_idxs], ns[neg_rand_idxs])
 
 
 # Embeds a sample of video frames and runs the specified function on the result.
@@ -142,16 +132,15 @@ def generate_examples(video_paths, output_file):
 
             # Store all feature vectors for this video.
             cur = []
-            process = lambda r: cur.append(r.features.tolist())
+            process = lambda r: cur.append(r.features)
             embed_video_frames(video_path, process, bar)
 
             bar.finish()
 
             # For the first iteration, just store the previous video.
             if prev:
-                for u in cur:
-                    example = create_example(*choose_triplet(u, cur, prev))
-                    writer.write(example.SerializeToString())
+                for trip in choose_triplets(np.array(cur), np.array(prev)):
+                    writer.write(create_example(*trip).SerializeToString())
 
             prev = cur
 
