@@ -26,36 +26,17 @@ def row_rand_indices(m):
 
 
 # Accepts a "positive" array of embedded frames from one video and a "negative"
-# array of embedded frames from a different video. Randomly produces ~hard~
-# training triplets as follows:
-#   1) The first entry in the triplet is a point from the positive array.
-#   2) The second entry is randomly chosen from the positive array with
-#      likelihood proportional to distance (i.e. a point 2x further away is
-#      twice as likely to be chosen). This preferentially chooses dissimilar
-#      frames within the same video.
-#   3) The third entry is randomly chosen from the negative array with
-#      likelihood proportional to proximity (i.e. a point 2x closer is twice as
-#      likely to be chosen). This preferentially chooses similar frames within
-#      the different video.
+# array of embedded frames from a different video. Produces random training
+# triplets of an "anchor", a "close" frame from the same video, and a "far"
+# frame from the other video.
 def choose_triplets(ps, ns):
-    # Calculate all-pairs dists.
-    pos_dists = spatial.distance.cdist(ps, ps, 'cosine')
-    neg_dists = np.reciprocal(spatial.distance.cdist(ps, ns, 'cosine'))
+    anchors = np.concatenate([ps for _ in range(EXAMPLES_PER_FRAME)])
 
-    # Row-wise normalise sums to 1. From: https://stackoverflow.com/a/16202486/2045715.
-    pos_probs = pos_dists / pos_dists.sum(axis=1, keepdims=True)
-    neg_probs = neg_dists / neg_dists.sum(axis=1, keepdims=True)
+    sample_count = ps.shape[0] * EXAMPLES_PER_FRAME
+    positives = ps[np.random.choice(ps.shape[0], sample_count)]
+    negatives = ns[np.random.choice(ns.shape[0], sample_count)]
 
-    # Generate a number of probability dists per anchor.
-    pos_all_probs = np.concatenate(
-        [pos_probs for _ in range(EXAMPLES_PER_FRAME)])
-    neg_all_probs = np.concatenate(
-        [neg_probs for _ in range(EXAMPLES_PER_FRAME)])
-
-    pos_rand_idxs = row_rand_indices(pos_all_probs)
-    neg_rand_idxs = row_rand_indices(neg_all_probs)
-
-    return zip(ps, ps[pos_rand_idxs], ns[neg_rand_idxs])
+    return zip(anchors, positives, negatives)
 
 
 # Embeds a sample of video frames and runs the specified function on the result.
