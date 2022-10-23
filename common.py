@@ -274,3 +274,11 @@ def embed_video_frames(video_path, process_fn, bar):
             timestamp=datetime.timedelta(seconds=frame_index / fps),
             features=embedded)
         process_fn(record)
+
+
+# Print a pretty progress bar with max value 1.0.
+def progress_bar(title):
+    bar = Bar(f'{title:40.40}', max=1.0, suffix='%(percent)d%%')
+    bar.bar_prefix = ' ['
+    bar.bar_suffix = '] '
+    return bar

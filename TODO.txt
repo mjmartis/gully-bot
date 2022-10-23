@@ -1,3 +1,2 @@
 - Include link information. 
-- Write Reddit client.
-- Make selection logic more clever.
+- Add training logic.

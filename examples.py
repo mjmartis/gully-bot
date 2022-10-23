@@ -1,15 +1,14 @@
-# Produce a database of training examples from a database of frames.
+# Produce a database of training examples from a list of videos.
 #  Usage: python3 examples.py <output> <input 1> <input 2> ...
 
 import datetime
 import random
 import sys
 
-from common import EmbeddedFrame, parse_video_path, embed_video_frames
+from common import EmbeddedFrame, embed_video_frames, parse_video_path, progress_bar
 
 import tensorflow as tf
 import numpy as np
-from progress.bar import Bar
 
 EXAMPLES_PER_FRAME = 5
 
@@ -54,8 +53,7 @@ def generate_examples(video_paths, output_file):
             _, title = parse_video_path(video_path)
 
             # Display progress bar.
-            progress_text = f'[{i+1:03}/{len(video_paths)}] {title}'
-            bar = Bar(f'{progress_text:40.40}', max=1.0, suffix='%(percent)d%%')
+            bar = progress_bar(f'[{i+1:03}/{len(video_paths)}] {title}')
 
             # Store all feature vectors for this video.
             cur = []

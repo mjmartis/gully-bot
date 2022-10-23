@@ -5,9 +5,7 @@
 import pickle
 import sys
 
-from common import EmbeddedFrame, init_nn_db, embed_video_frames, parse_video_path
-
-from progress.bar import Bar
+from common import EmbeddedFrame, init_nn_db, embed_video_frames, parse_video_path, progress_bar
 
 TREES_COUNT = 30
 
@@ -44,8 +42,7 @@ def main():
         _, title = parse_video_path(video_path)
 
         # Display progress bar.
-        progress_text = f'[{i+1:03}/{len(sys.argv)-3}] {title}'
-        bar = Bar(f'{progress_text:40.40}', max=1.0, suffix='%(percent)d%%')
+        bar = progress_bar(f'[{i+1:03}/{len(sys.argv)-3}] {title}')
 
         # Write metadata and NN data.
         embed_video_frames(video_path, process, bar)
