@@ -18,13 +18,6 @@ BATCH_SIZE = 32
 SAMPLE_HZ = 4.0
 EXAMPLES_PER_FRAME = 5
 
-
-# Get weighted random indices per-row.
-# From: https://stackoverflow.com/a/47722393/2045715.
-def row_rand_indices(m):
-    return (m.cumsum(1) > np.random.rand(m.shape[0])[:, None]).argmax(1)
-
-
 # Accepts a "positive" array of embedded frames from one video and a "negative"
 # array of embedded frames from a different video. Produces random training
 # triplets of an "anchor", a "close" frame from the same video, and a "far"
