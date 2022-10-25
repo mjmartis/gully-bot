@@ -5,7 +5,7 @@ import datetime
 import random
 import sys
 
-from common import EmbeddedFrame, embed_video_frames, parse_video_path, progress_bar
+from common import EmbeddedFrame, embed_video_frames, parse_video_path, progress_bar, RECORD_COMPRESSION
 
 import tensorflow as tf
 import numpy as np
@@ -55,12 +55,13 @@ def generate_examples(video_paths, output_prefix):
                                         c=SHARDS_COUNT)
         for i in range(1, SHARDS_COUNT + 1)
     ]
-    writers = [tf.io.TFRecordWriter(p, WRITER_OPTS) for p in out_paths]
+    writers = [tf.io.TFRecordWriter(p, RECORD_COMPRESSION) for p in out_paths]
 
     # Frames from the last video.
     prev = None
 
     # Write triplets to disk as we generate them.
+    example_index = 0
     for i, video_path in enumerate(video_paths):
         _, title = parse_video_path(video_path)
 
@@ -77,14 +78,18 @@ def generate_examples(video_paths, output_prefix):
         # For the first iteration, just store the previous video.
         if prev:
             for trip in choose_triplets(np.array(cur), np.array(prev)):
-                # Cycle through shards per-video.
-                writers[i % SHARDS_COUNT].write(
+                # Cycle through shards per-example.
+                writers[example_index % SHARDS_COUNT].write(
                     create_example(*trip).SerializeToString())
+                example_index += 1
 
         prev = cur
 
     for w in writers:
         w.close()
+
+    with open(f'{output_prefix}_count.txt', 'w') as count_file:
+        count_file.write(f'{example_index}\n')
 
 
 def main():
