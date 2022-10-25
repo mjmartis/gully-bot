@@ -1,5 +1,5 @@
 # Produce a database of training examples from a list of videos.
-#  Usage: python3 examples.py <output> <input 1> <input 2> ...
+#  Usage: python3 examples.py <output prefix> <input 1> <input 2> ...
 
 import datetime
 import random
@@ -11,6 +11,9 @@ import tensorflow as tf
 import numpy as np
 
 EXAMPLES_PER_FRAME = 5
+SHARDS_COUNT = 10
+SHARDS_DIGITS = len(str(SHARDS_COUNT))
+WRITER_OPTS = 'ZLIB'
 
 
 # Accepts a "positive" array of embedded frames from one video and a "negative"
@@ -43,36 +46,50 @@ def create_example(a, p, n):
 
 
 # For each frame of each video, write a series of triplet examples to disk.
-def generate_examples(video_paths, output_file):
+def generate_examples(video_paths, output_prefix):
+    # Create a writer for each output shard.
+    out_paths = [
+        '{p}_{i:0{w}}-{c}.tfrec'.format(p=output_prefix,
+                                        i=i,
+                                        w=SHARDS_DIGITS,
+                                        c=SHARDS_COUNT)
+        for i in range(1, SHARDS_COUNT + 1)
+    ]
+    writers = [tf.io.TFRecordWriter(p, WRITER_OPTS) for p in out_paths]
+
     # Frames from the last video.
     prev = None
 
     # Write triplets to disk as we generate them.
-    with tf.io.TFRecordWriter(output_file) as writer:
-        for i, video_path in enumerate(video_paths):
-            _, title = parse_video_path(video_path)
+    for i, video_path in enumerate(video_paths):
+        _, title = parse_video_path(video_path)
 
-            # Display progress bar.
-            bar = progress_bar(f'[{i+1:03}/{len(video_paths)}] {title}')
+        # Display progress bar.
+        bar = progress_bar(f'[{i+1:03}/{len(video_paths)}] {title}')
 
-            # Store all feature vectors for this video.
-            cur = []
-            process = lambda r: cur.append(r.features)
-            embed_video_frames(video_path, process, bar)
+        # Store all feature vectors for this video.
+        cur = []
+        process = lambda r: cur.append(r.features)
+        embed_video_frames(video_path, process, bar)
 
-            bar.finish()
+        bar.finish()
 
-            # For the first iteration, just store the previous video.
-            if prev:
-                for trip in choose_triplets(np.array(cur), np.array(prev)):
-                    writer.write(create_example(*trip).SerializeToString())
+        # For the first iteration, just store the previous video.
+        if prev:
+            for trip in choose_triplets(np.array(cur), np.array(prev)):
+                # Cycle through shards per-video.
+                writers[i % SHARDS_COUNT].write(
+                    create_example(*trip).SerializeToString())
 
-            prev = cur
+        prev = cur
+
+    for w in writers:
+        w.close()
 
 
 def main():
     if len(sys.argv) < 4:
-        print(f'Usage: {sys.argv[0]} <output> <input 1> <input 2> ...')
+        print(f'Usage: {sys.argv[0]} <output prefix> <input 1> <input 2> ...')
         exit(1)
 
     generate_examples(sys.argv[2:], sys.argv[1])
