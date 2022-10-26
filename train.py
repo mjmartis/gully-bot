@@ -1,18 +1,21 @@
 # Accepts a database of Mobilenet feature triplets and trains an embedding model.
 #   Usage: python3 train.py <output model> <input count file> <input record paths...>
 
+import math
+import pathlib
 import sys
 
 from common import FEATURE_VECTOR_LEN, RECORD_COMPRESSION
 
 import tensorflow as tf
 
+from tensorflow.keras import callbacks
 from tensorflow.keras import layers
 from tensorflow.keras import optimizers
 from tensorflow.keras import metrics
+from tensorflow.keras import models
 from tensorflow.keras import Model
 from tensorflow.keras import Sequential
-from tensorflow.keras.callbacks import TensorBoard
 
 # Format of examples to read in.
 EXAMPLE_SCHEMA = {
@@ -28,12 +31,13 @@ SHUFFLE_BUFFER_SIZE = 1024
 EXAMPLE_BATCH_SIZE = 32
 PREFETCH_SIZE = 8
 TRAIN_PROP = 0.8
-EPOCHS = 10
+EPOCHS = 50
 LEARNING_RATE = 0.00003
 TENSORBOARD_LOGDIR = './logs'
 
 # Model parameters.
-LAYER_SIZE = 48
+LAYER_SIZE = 64
+DROPOUT_RATE = 0.8
 
 
 # From: https://keras.io/examples/vision/siamese_network/.
@@ -111,7 +115,9 @@ def parse_example(record_bytes):
     return tf.io.parse_single_example(record_bytes, EXAMPLE_SCHEMA)
 
 
-# Preprocess a list of TFRecord databases into training and validation datasets.
+# Preprocess a list of TFRecord databases into training and validation
+# datasets. Returns the training and validation datasets, each of which is a
+# (dataset, dataset length) pair.
 def prepare_datasets(dataset_paths, count_file_path):
     # Parse number of examples from a separate file.
     with open(count_file_path, 'r') as count_file:
@@ -123,15 +129,19 @@ def prepare_datasets(dataset_paths, count_file_path):
         compression_type=RECORD_COMPRESSION,
         buffer_size=FS_READ_BUFFER_BYTES,
         num_parallel_reads=PARALLEL_READ_COUNT).shuffle(
-            buffer_size=SHUFFLE_BUFFER_SIZE).map(parse_example)
+            buffer_size=SHUFFLE_BUFFER_SIZE).map(parse_example).batch(
+                EXAMPLE_BATCH_SIZE, drop_remainder=False)
 
     # Split into train and validation sets.
-    count = round(example_count * TRAIN_PROP)
-    return [
-        d.batch(EXAMPLE_BATCH_SIZE,
-                drop_remainder=False).prefetch(PREFETCH_SIZE)
-        for d in [ds.take(count), ds.skip(count)]
+    batch_count = math.ceil(1.0 * example_count / EXAMPLE_BATCH_SIZE)
+    train_count = round(batch_count * TRAIN_PROP)
+    train_ds, val_ds = [
+        d.repeat().prefetch(PREFETCH_SIZE)
+        for d in [ds.take(train_count),
+                  ds.skip(train_count)]
     ]
+
+    return (train_ds, train_count), (val_ds, batch_count - train_count)
 
 
 # The Keras layer that embeds the output of Mobilenet into its own Euclidean
@@ -139,7 +149,9 @@ def prepare_datasets(dataset_paths, count_file_path):
 def reembedding_layer():
     return Sequential([
         layers.Dense(LAYER_SIZE, activation='relu'),
+        layers.Dropout(DROPOUT_RATE),
         layers.BatchNormalization(),
+        layers.Dropout(DROPOUT_RATE),
         layers.Dense(LAYER_SIZE, activation='relu'),
     ])
 
@@ -161,16 +173,36 @@ def main():
               '<input record paths...>')
         exit(1)
 
-    train_ds, val_ds = prepare_datasets(sys.argv[3:], sys.argv[2])
-    tensorboard_cb = tf.keras.callbacks.TensorBoard(log_dir=TENSORBOARD_LOGDIR,
-                                                    histogram_freq=1)
+    # Create dataset iterators.
+    (t_ds, t_count), (v_ds, v_count) = prepare_datasets(sys.argv[3:],
+                                                        sys.argv[2])
+
+    # Log data for stats server.
+    tensorboard_cb = callbacks.TensorBoard(log_dir=TENSORBOARD_LOGDIR,
+                                           histogram_freq=1)
+    # Save best model after each epoch.
+    checkpoint_cb = callbacks.ModelCheckpoint(filepath=sys.argv[1],
+                                              save_weights_only=True,
+                                              monitor='val_loss',
+                                              mode='min',
+                                              save_best_only=True)
+
     siamese_model = SiameseModel(siamese_network())
+
+    # Load a previous model if it exists with the given name. This allows the
+    # same command to start or resume training.
+    try:
+        siamese_model.load_weights(sys.argv[1])
+    except:
+        pass
+
     siamese_model.compile(optimizer=optimizers.Adam(LEARNING_RATE))
-    siamese_model.fit(train_ds,
+    siamese_model.fit(t_ds,
                       epochs=EPOCHS,
-                      validation_data=val_ds,
-                      callbacks=[tensorboard_cb])
-    siamese_model.save(sys.argv[1])
+                      steps_per_epoch=t_count,
+                      validation_data=v_ds,
+                      validation_steps=v_count,
+                      callbacks=[tensorboard_cb, checkpoint_cb])
 
 
 if __name__ == "__main__":

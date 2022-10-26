@@ -1,2 +1,3 @@
 - Include link information. 
-- Add training logic.
+- Improve training.
+- Support NN with learnt embedding.

@@ -39,10 +39,12 @@ _MAX_OUTLIERS = 3
 
 _SQUASH_EXP_FACTOR = 5.0
 
-_FEATURE_VECTOR_LEN = 1792
 _DIST_METRIC = 'angular'
 
 _SAMPLE_HZ = 4.0
+
+FEATURE_VECTOR_LEN = 1792
+RECORD_COMPRESSION = 'ZLIB'
 
 EmbeddedFrame = namedtuple('EmbeddedFrame',
                            ['title', 'date', 'length', 'timestamp', 'features'])
@@ -218,7 +220,7 @@ def find_nearest_frame(mds, nn_db, image_bytes):
 
 # Initializes a NN database with the parameters needed for our embedding.
 def init_nn_db():
-    return AnnoyIndex(_FEATURE_VECTOR_LEN, _DIST_METRIC)
+    return AnnoyIndex(FEATURE_VECTOR_LEN, _DIST_METRIC)
 
 
 # Parse date and video title from full path, with stem in the
